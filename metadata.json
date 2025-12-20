@@ -1,0 +1,8 @@
+{
+  "name": "LibraQuant",
+  "description": "Institutional-grade options trading signal dashboard with real-time alerts and AI-powered analysis.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
