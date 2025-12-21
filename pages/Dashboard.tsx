@@ -20,9 +20,21 @@ const Dashboard: React.FC<DashboardProps> = ({
   granularHighlights,
   onSignalUpdate
 }) => {
+  // Grace period for showing closed trades on live page (60 seconds)
+  const GRACE_PERIOD_MS = 60 * 1000;
+
   const liveSignals = useMemo(() => {
+    const now = Date.now();
     return signals.filter(signal => {
-      return signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
+      const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
+      if (isLive) return true;
+
+      // Ghosting logic: If signal just closed, keep it for 60 seconds
+      const closeTimeStr = signal.lastTradedTimestamp || signal.timestamp;
+      const closeTime = new Date(closeTimeStr).getTime();
+      const isRecentlyClosed = (now - closeTime) < GRACE_PERIOD_MS;
+      
+      return isRecentlyClosed;
     });
   }, [signals]);
 
@@ -48,13 +60,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     
     if (updatedIds.length > 0) {
       const targetId = updatedIds[0];
-      // Only scroll if it's a new update we haven't scrolled to in this specific blast cycle
       if (lastScrolledId.current !== targetId) {
         const element = document.getElementById(`signal-${targetId}`);
         if (element) {
           element.scrollIntoView({ behavior: 'smooth', block: 'center' });
           lastScrolledId.current = targetId;
-          // Clear the ref after a delay so it can scroll again if the same card updates later
           setTimeout(() => { lastScrolledId.current = null; }, 2000);
         }
       }
@@ -84,7 +94,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {latestSignal && (
+      {latestSignal && (latestSignal.status === TradeStatus.ACTIVE || latestSignal.status === TradeStatus.PARTIAL) && (
         <div className="relative group overflow-hidden rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-1">
           <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-40 transition-opacity">
             <Zap size={60} className="text-emerald-500" />
@@ -129,6 +139,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {sortedSignals.map((signal) => {
                         const hasHighlight = !!granularHighlights[signal.id];
+                        const isRecentlyClosed = signal.status === TradeStatus.EXITED || signal.status === TradeStatus.STOPPED || signal.status === TradeStatus.ALL_TARGET;
+                        
                         return (
                           <div 
                             key={signal.id} 
@@ -140,6 +152,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 user={user} 
                                 highlights={granularHighlights[signal.id]} 
                                 onSignalUpdate={onSignalUpdate}
+                                isRecentlyClosed={isRecentlyClosed}
                             />
                           </div>
                         );

@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+
+import React, { useState, useMemo, useEffect } from 'react';
+import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff } from 'lucide-react';
 import { User } from '../types';
 import { SEBI_DISCLAIMER, FOOTER_TEXT, BRANDING_TEXT } from '../constants';
 
@@ -13,13 +14,34 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, onNavigate }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isTabFocused, setIsTabFocused] = useState(true);
+
+  // Security: Blur screen when tab loses focus (prevents background recording)
+  useEffect(() => {
+    if (user?.isAdmin) return; // Admins exempt
+
+    const handleVisibility = () => {
+      setIsTabFocused(!document.hidden);
+    };
+
+    const handleBlur = () => setIsTabFocused(false);
+    const handleFocus = () => setIsTabFocused(true);
+
+    window.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [user]);
 
   const subscriptionStatus = useMemo(() => {
     if (!user?.expiryDate) return { days: 0, expired: true, soon: false };
     
-    // Robust date parsing
     let expiryStr = user.expiryDate;
-    // Handle DD-MM-YYYY if present
     if (expiryStr.includes('-') && expiryStr.split('-')[0].length === 2) {
       const parts = expiryStr.split('-');
       expiryStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
@@ -61,7 +83,16 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
   );
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row relative overflow-hidden">
+    <div className={`min-h-screen flex flex-col md:flex-row relative overflow-hidden ${!isTabFocused ? 'app-protected' : ''} ${!user?.isAdmin ? 'no-screenshot' : ''}`}>
+      {/* Privacy Guard Overlay */}
+      {!isTabFocused && !user?.isAdmin && (
+        <div className="fixed inset-0 z-[99999] bg-slate-950/80 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-6">
+          <EyeOff size={64} className="text-slate-500 mb-4 animate-pulse" />
+          <h2 className="text-2xl font-bold text-white mb-2 uppercase tracking-tighter">Secure Terminal Locked</h2>
+          <p className="text-slate-400 max-w-xs text-sm">Application content is hidden for your security while the tab is inactive.</p>
+        </div>
+      )}
+
       {/* Dynamic Watermark Overlay */}
       {user && (
         <div className="watermark">

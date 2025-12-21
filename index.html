@@ -19,6 +19,22 @@
       ::-webkit-scrollbar-track { background: #020617; }
       ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 10px; }
       
+      /* Security & Privacy Styles */
+      .app-protected {
+        filter: blur(40px);
+        pointer-events: none;
+        transition: filter 0.3s ease;
+      }
+      
+      .no-screenshot {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -khtml-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+      }
+
       @keyframes blink-intel {
         0%, 100% { background-color: transparent; }
         50% { background-color: rgba(6, 182, 212, 0.4); box-shadow: 0 0 15px rgba(6, 182, 212, 0.3); }
@@ -56,6 +72,27 @@
         border: 6px solid #f43f5e;
         border-radius: 12px;
         animation: fire-blast-red 0.8s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+      }
+
+      /* Institutional Status Stamp Styles */
+      @keyframes stamp-slam {
+        0% { transform: scale(3) rotate(-15deg); opacity: 0; filter: blur(10px); }
+        70% { transform: scale(0.95) rotate(-15deg); opacity: 1; filter: blur(0); }
+        100% { transform: scale(1) rotate(-15deg); opacity: 1; }
+      }
+      
+      .status-stamp {
+        border: 4px solid currentColor;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        transform: rotate(-15deg);
+        animation: stamp-slam 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        box-shadow: inset 0 0 0 2px currentColor;
+        background: rgba(15, 23, 42, 0.8);
       }
       
       .watermark {

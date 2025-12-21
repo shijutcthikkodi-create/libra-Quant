@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2 } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Lock } from 'lucide-react';
 import { TradeSignal, TradeStatus, OptionType, User } from '../types';
 import { analyzeTradeSignal } from '../services/geminiService';
 
@@ -9,9 +8,10 @@ interface SignalCardProps {
   user: User;
   highlights?: Set<string>;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
+  isRecentlyClosed?: boolean;
 }
 
-const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate }) => {
+const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, isRecentlyClosed }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   
@@ -102,9 +102,34 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
   
   const riskGrade = riskReward >= 2.5 ? 'A+' : riskReward >= 1.5 ? 'B' : 'C-';
 
+  // Determine Stamp Text
+  const getStampContent = () => {
+    if (isAllTarget) return { text: 'COMPLETED', color: 'text-emerald-500' };
+    if (isSLHit) return { text: 'SL SEALED', color: 'text-rose-500' };
+    if (isTSLHit) return { text: 'TSL HIT', color: 'text-amber-500' };
+    return { text: 'POSITION CLOSED', color: 'text-slate-400' };
+  };
+
+  const stamp = getStampContent();
+
   return (
-    <div className={`relative bg-slate-900 border rounded-xl overflow-hidden transition-all duration-300 ${isActive ? 'border-slate-700 shadow-xl' : isAllTarget ? 'border-emerald-500/30 shadow-emerald-500/5' : 'border-slate-800 opacity-90'}`}>
+    <div className={`relative bg-slate-900 border rounded-xl overflow-hidden transition-all duration-500 ${isActive ? 'border-slate-700 shadow-xl' : isAllTarget ? 'border-emerald-500/30 shadow-emerald-500/5' : 'border-slate-800 opacity-90'} ${isRecentlyClosed ? 'opacity-30 grayscale-[0.8]' : ''}`}>
       
+      {/* Ghosting / Institutional Sealed Status Stamp */}
+      {isRecentlyClosed && (
+        <div className="absolute inset-0 z-[100] bg-slate-950/20 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
+           <div className={`status-stamp ${stamp.color}`}>
+              <div className="flex flex-col items-center">
+                 <span className="text-2xl tracking-[0.2em]">{stamp.text}</span>
+                 <div className="flex items-center mt-1 space-x-2">
+                    <History size={12} />
+                    <span className="text-[10px] font-bold opacity-60">ARCHIVING IN 1M</span>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+
       {/* Target Hit Blast (Green) */}
       {(highlights?.has('blast') || isAllTarget) && isActive && (
         <div className="absolute inset-0 z-50 overflow-hidden pointer-events-none">
