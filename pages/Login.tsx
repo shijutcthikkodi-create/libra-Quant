@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { Lock, Phone, Scale, Smartphone, ShieldBan, Loader2, KeyRound, ShieldAlert } from 'lucide-react';
@@ -17,16 +18,21 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   useEffect(() => {
     let storedId = localStorage.getItem('libra_hw_id');
     if (!storedId) {
-        // Generate a more persistent browser fingerprint
+        // Generate a more robust persistent browser fingerprint
         const fingerprint = [
             navigator.userAgent.length,
             screen.colorDepth,
             new Date().getTimezoneOffset(),
             screen.height,
             screen.width,
-            navigator.hardwareConcurrency || 4
+            navigator.hardwareConcurrency || 4,
+            navigator.language,
+            navigator.maxTouchPoints
         ].join('-');
-        storedId = `HW-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${fingerprint.slice(0,4)}`;
+        
+        // Create a unique hash-like ID
+        const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+        storedId = `LIBRA-${randomStr}-${fingerprint.slice(0, 10)}`;
         localStorage.setItem('libra_hw_id', storedId);
     }
     setBrowserDeviceId(storedId);
@@ -43,7 +49,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     try {
         const data = await fetchSheetData();
         const users = data?.users || [];
-        const sheetUser = users.find((u: any) => String(u.phoneNumber) === phone);
+        const sheetUser = users.find((u: any) => String(u.phoneNumber).trim() === phone.trim());
 
         // 1. Check User Existence
         if (!sheetUser) {
@@ -53,7 +59,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         }
 
         // 2. Validate Password (Access Key)
-        if (password !== String(sheetUser.password)) {
+        if (password.trim() !== String(sheetUser.password).trim()) {
             setError('Incorrect Access Key. Check and try again.');
             setLoading(false);
             return;
@@ -62,7 +68,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         // 3. Subscription & Password Expiry Check
         if (sheetUser.expiryDate) {
             let expiryStr = sheetUser.expiryDate;
-            // Handle common DD-MM-YYYY format from sheets
             if (expiryStr.includes('-') && expiryStr.split('-')[0].length === 2) {
               const parts = expiryStr.split('-');
               expiryStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
@@ -76,22 +81,29 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     setLoading(false);
                     return;
                 }
-            } else {
-                console.warn("Invalid date format in sheet:", sheetUser.expiryDate);
             }
         }
 
-        // 4. Rigid Device Locking Logic
+        // 4. RIGID DEVICE LOCKING LOGIC
+        // Admins are exempt to allow management from multiple terminals
         if (!sheetUser.isAdmin) {
-            if (sheetUser.deviceId && sheetUser.deviceId !== browserDeviceId) {
-                setError('SECURITY VIOLATION: This account is locked to another device. Multiple logins are prohibited.');
+            const savedDeviceId = sheetUser.deviceId ? String(sheetUser.deviceId).trim() : null;
+            
+            // If device ID exists in database and it DOES NOT match the current browser ID
+            if (savedDeviceId && savedDeviceId !== "" && savedDeviceId !== "null" && savedDeviceId !== browserDeviceId) {
+                setError('SECURITY VIOLATION: This account is locked to another device. Multi-device login is strictly prohibited.');
                 setLoading(false);
                 return;
             }
             
-            if (!sheetUser.deviceId) {
+            // If no device ID is saved yet, bind this device to the account
+            if (!savedDeviceId || savedDeviceId === "" || savedDeviceId === "null") {
                 const updatedUser = { ...sheetUser, deviceId: browserDeviceId };
-                await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
+                const success = await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
+                if (!success) {
+                    // Fallback: If sheet update fails, we proceed but log a warning
+                    console.warn("Could not bind device ID to sheet, proceeding with local bind.");
+                }
             }
         }
 
@@ -104,7 +116,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             deviceId: browserDeviceId
         });
     } catch (err) {
-        setError('System Sync Error. Check internet connection.');
+        console.error("Login failure:", err);
+        setError('System Sync Error. Check your internet connection or try again later.');
     } finally {
         setLoading(false);
     }
@@ -163,21 +176,21 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
                 <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-xl shadow-blue-900/20 disabled:opacity-50 flex items-center justify-center text-sm uppercase tracking-widest">
                     {loading ? <Loader2 className="animate-spin mr-2" size={18} /> : null}
-                    {loading ? 'Verifying Hardware...' : 'Sign In To Terminal'}
+                    {loading ? 'Securing Link...' : 'Sign In To Terminal'}
                 </button>
             </form>
 
             <div className="mt-8 pt-6 border-t border-slate-800/50 text-center">
                 <p className="text-[10px] text-slate-600 font-mono leading-relaxed uppercase tracking-tighter">
                     Account locks to initial device ID.<br/>
-                    Passwords valid for 30 days only.
+                    Contact admin for hardware resets.
                 </p>
             </div>
         </div>
         <div className="bg-slate-950/50 p-4 text-center border-t border-slate-800">
             <div className="flex items-center justify-center text-[10px] text-slate-500 font-mono">
                 <Smartphone size={10} className="mr-2 text-slate-700" />
-                <span>DEVICE BOUND: {browserDeviceId}</span>
+                <span className="truncate max-w-[200px]">HARDWARE ID: {browserDeviceId}</span>
             </div>
         </div>
       </div>

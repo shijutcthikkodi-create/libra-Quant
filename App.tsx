@@ -10,7 +10,7 @@ import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus } from './types';
 import { fetchSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
-import { Volume2, VolumeX, RefreshCw, WifiOff, ShieldAlert } from 'lucide-react';
+import { Volume2, VolumeX, RefreshCw, WifiOff, ShieldAlert, Radio, CheckCircle, BarChart2 } from 'lucide-react';
 
 const SESSION_DURATION_MS = 6.5 * 60 * 60 * 1000;
 const SESSION_KEY = 'libra_user_session';
@@ -122,7 +122,6 @@ const App: React.FC = () => {
             if (!old) {
               WATCH_KEYS.forEach(k => diff.add(k));
             } else {
-              // Wrap change detection in WATCH_KEYS.forEach to correctly access 'k'
               WATCH_KEYS.forEach(k => {
                 if (JSON.stringify((w as any)[k]) !== JSON.stringify((old as any)[k])) diff.add(k);
               });
@@ -176,9 +175,15 @@ const App: React.FC = () => {
 
   return (
     <Layout user={user} onLogout={() => setUser(null)} currentPage={page} onNavigate={setPage}>
-      <div className="fixed top-4 right-4 z-[60] flex items-center space-x-2">
-        <button onClick={toggleSound} className={`p-2 rounded-full border shadow-lg transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
-          {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+      {/* Sound Toggle and Server Status */}
+      <div className="fixed top-4 right-4 z-[60] flex items-center space-x-3">
+        {/* DOUBLED SIZE SOUND BUTTON */}
+        <button 
+          onClick={toggleSound} 
+          className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
+          title="Toggle Alert Sounds"
+        >
+          {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
         </button>
         
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
@@ -202,7 +207,7 @@ const App: React.FC = () => {
       </div>
 
       {connectionStatus === 'error' && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] bg-rose-600 text-white px-4 py-2 rounded-full text-xs font-bold shadow-2xl flex items-center animate-bounce">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-rose-600 text-white px-4 py-2 rounded-full text-xs font-bold shadow-2xl flex items-center animate-bounce">
             <ShieldAlert size={14} className="mr-2" />
             Network Unstable - Retrying Connection...
         </div>
@@ -213,6 +218,39 @@ const App: React.FC = () => {
       {page === 'stats' && <Stats />}
       {page === 'rules' && <Rules />}
       {page === 'admin' && user.isAdmin && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} />}
+
+      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
+        <button 
+          onClick={() => setPage('dashboard')} 
+          className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}
+        >
+          <div className={`${page === 'dashboard' ? 'bg-blue-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.2)]' : ''}`}>
+            <Radio size={page === 'dashboard' ? 24 : 20} strokeWidth={page === 'dashboard' ? 3 : 2} />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-tighter">Live</span>
+        </button>
+
+        <button 
+          onClick={() => setPage('booked')} 
+          className={`flex flex-col items-center space-y-1 transition-all ${page === 'booked' ? 'text-emerald-500' : 'text-slate-500'}`}
+        >
+          <div className={`${page === 'booked' ? 'bg-emerald-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.2)]' : ''}`}>
+            <CheckCircle size={page === 'booked' ? 24 : 20} strokeWidth={page === 'booked' ? 3 : 2} />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-tighter">History</span>
+        </button>
+
+        <button 
+          onClick={() => setPage('stats')} 
+          className={`flex flex-col items-center space-y-1 transition-all ${page === 'stats' ? 'text-yellow-500' : 'text-slate-500'}`}
+        >
+          <div className={`${page === 'stats' ? 'bg-yellow-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(234,179,8,0.2)]' : ''}`}>
+            <BarChart2 size={page === 'stats' ? 24 : 20} strokeWidth={page === 'stats' ? 3 : 2} />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-tighter">Stats</span>
+        </button>
+      </div>
     </Layout>
   );
 };

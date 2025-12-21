@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import SignalCard from '../components/SignalCard';
 import { Bell, List, Clock, Zap, Activity } from 'lucide-react';
@@ -12,25 +13,18 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ watchlist, signals, user, granularHighlights }) => {
-  // Requirement: Filter signals to only show ACTIVE or PARTIAL trades from TODAY
-  const liveTodaySignals = useMemo(() => {
-    const now = new Date();
-    const todayStr = now.toLocaleDateString('en-IN'); 
-
+  // Requirement: Show all trades that are ACTIVE or PARTIAL booked.
+  // RELAXED FILTER: We remove the strict "today only" requirement to ensure trades from previous days that are still open remain visible.
+  const liveSignals = useMemo(() => {
     return signals.filter(signal => {
-      if (!signal.timestamp) return false;
-      const signalDate = new Date(signal.timestamp).toLocaleDateString('en-IN');
-      
-      // Only show ACTIVE or PARTIAL booked signals on this page
-      const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
-      
-      return signalDate === todayStr && isLive;
+      // Show any signal that is still in progress
+      return signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
     });
   }, [signals]);
 
-  // Requirement: "I need lowest updated row trade details there"
+  // Requirement: Sort to show most recent first
   const sortedSignals = useMemo(() => {
-    return [...liveTodaySignals].sort((a, b) => {
+    return [...liveSignals].sort((a, b) => {
       const timeA = new Date(a.timestamp).getTime();
       const timeB = new Date(b.timestamp).getTime();
       
@@ -42,7 +36,7 @@ const Dashboard: React.FC<DashboardProps> = ({ watchlist, signals, user, granula
       const indexB = b.sheetIndex ?? 0;
       return indexB - indexA;
     });
-  }, [liveTodaySignals]);
+  }, [liveSignals]);
 
   const latestSignal = sortedSignals[0];
 
