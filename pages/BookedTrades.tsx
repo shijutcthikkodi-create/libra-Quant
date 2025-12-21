@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import SignalCard from '../components/SignalCard';
 import { CheckCircle, Search, TrendingUp, DollarSign } from 'lucide-react';
@@ -10,7 +11,11 @@ interface BookedTradesProps {
   granularHighlights: GranularHighlights;
 }
 
-const BookedTrades: React.FC<BookedTradesProps> = ({ signals, user, granularHighlights }) => {
+const BookedTrades: React.FC<BookedTradesProps> = ({ 
+  signals, 
+  user, 
+  granularHighlights
+}) => {
   const bookedSignals = useMemo(() => {
     return signals.filter(signal => {
       const status = signal.status;
@@ -30,7 +35,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({ signals, user, granularHigh
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1 flex items-center">
             <CheckCircle size={24} className="mr-2 text-blue-500" />

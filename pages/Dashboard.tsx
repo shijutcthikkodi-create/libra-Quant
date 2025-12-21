@@ -12,26 +12,24 @@ interface DashboardProps {
   granularHighlights: GranularHighlights;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ watchlist, signals, user, granularHighlights }) => {
-  // Requirement: Show all trades that are ACTIVE or PARTIAL booked.
-  // RELAXED FILTER: We remove the strict "today only" requirement to ensure trades from previous days that are still open remain visible.
+const Dashboard: React.FC<DashboardProps> = ({ 
+  watchlist, 
+  signals, 
+  user, 
+  granularHighlights
+}) => {
+  // RELAXED FILTER: Show all signals that are ACTIVE or PARTIAL booked, regardless of the creation date.
   const liveSignals = useMemo(() => {
     return signals.filter(signal => {
-      // Show any signal that is still in progress
       return signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
     });
   }, [signals]);
 
-  // Requirement: Sort to show most recent first
   const sortedSignals = useMemo(() => {
     return [...liveSignals].sort((a, b) => {
       const timeA = new Date(a.timestamp).getTime();
       const timeB = new Date(b.timestamp).getTime();
-      
-      if (timeA !== timeB) {
-        return timeB - timeA; // Most recent time first
-      }
-      
+      if (timeA !== timeB) return timeB - timeA;
       const indexA = a.sheetIndex ?? 0;
       const indexB = b.sheetIndex ?? 0;
       return indexB - indexA;
@@ -57,7 +55,7 @@ const Dashboard: React.FC<DashboardProps> = ({ watchlist, signals, user, granula
               IST Today: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
             </div>
             <button className="flex items-center px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700 transition-colors text-sm font-medium">
-                <Bell size={16} className="mr-2 text-yellow-500" />
+                <Bell size={18} className="mr-2 text-yellow-500" />
                 Alerts
             </button>
         </div>
@@ -126,7 +124,7 @@ const Dashboard: React.FC<DashboardProps> = ({ watchlist, signals, user, granula
               )}
           </div>
 
-          <div className="w-full lg:w-80 shrink-0 order-1 lg:order-2">
+          <div className="w-full lg:w-80 shrink-0 order-1 lg:order-2 space-y-4">
              <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden sticky top-4 shadow-2xl">
                 <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50 backdrop-blur">
                     <div className="flex items-center space-x-2">

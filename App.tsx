@@ -10,7 +10,7 @@ import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus } from './types';
 import { fetchSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
-import { Volume2, VolumeX, RefreshCw, WifiOff, ShieldAlert, Radio, CheckCircle, BarChart2 } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff } from 'lucide-react';
 
 const SESSION_DURATION_MS = 6.5 * 60 * 60 * 1000;
 const SESSION_KEY = 'libra_user_session';
@@ -175,17 +175,9 @@ const App: React.FC = () => {
 
   return (
     <Layout user={user} onLogout={() => setUser(null)} currentPage={page} onNavigate={setPage}>
-      {/* Sound Toggle and Server Status */}
-      <div className="fixed top-4 right-4 z-[60] flex items-center space-x-3">
-        {/* DOUBLED SIZE SOUND BUTTON */}
-        <button 
-          onClick={toggleSound} 
-          className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
-          title="Toggle Alert Sounds"
-        >
-          {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
-        </button>
-        
+      {/* Global Controls - Restored Fixed Positioning */}
+      <div className="fixed top-4 right-4 z-[60] flex flex-col items-end space-y-3">
+        {/* SERVER STATUS TAB */}
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">
               <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">
@@ -204,6 +196,15 @@ const App: React.FC = () => {
              {connectionStatus === 'error' ? <WifiOff size={14} /> : <RefreshCw size={14} className={connectionStatus === 'syncing' ? 'animate-spin' : ''} />}
           </button>
         </div>
+
+        {/* SOUND TOGGLE BUTTON */}
+        <button 
+          onClick={toggleSound} 
+          className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
+          title="Toggle Alert Sounds"
+        >
+          {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
+        </button>
       </div>
 
       {connectionStatus === 'error' && (
@@ -217,7 +218,7 @@ const App: React.FC = () => {
       {page === 'booked' && <BookedTrades signals={signals} user={user} granularHighlights={granularHighlights} />}
       {page === 'stats' && <Stats />}
       {page === 'rules' && <Rules />}
-      {page === 'admin' && user.isAdmin && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} />}
+      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} />}
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
