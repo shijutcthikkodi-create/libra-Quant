@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff } from 'lucide-react';
 import { User } from '../types';
@@ -15,11 +16,14 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTabFocused, setIsTabFocused] = useState(true);
 
-  // Security Logic: Blur screen for non-admins when tab is inactive
+  // Security: Blur screen when tab loses focus (prevents background recording)
   useEffect(() => {
-    if (user?.isAdmin) return; 
+    if (user?.isAdmin) return; // Admins exempt
 
-    const handleVisibility = () => setIsTabFocused(!document.hidden);
+    const handleVisibility = () => {
+      setIsTabFocused(!document.hidden);
+    };
+
     const handleBlur = () => setIsTabFocused(false);
     const handleFocus = () => setIsTabFocused(true);
 
@@ -79,22 +83,22 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
   );
 
   return (
-    <div className={`min-h-screen flex flex-col md:flex-row relative overflow-hidden ${!isTabFocused && !user?.isAdmin ? 'app-protected' : ''} ${!user?.isAdmin ? 'no-screenshot' : ''}`}>
-      {/* Security Privacy Overlay - Only for Non-Admins */}
+    <div className={`min-h-screen flex flex-col md:flex-row relative overflow-hidden ${!isTabFocused ? 'app-protected' : ''} ${!user?.isAdmin ? 'no-screenshot' : ''}`}>
+      {/* Privacy Guard Overlay */}
       {!isTabFocused && !user?.isAdmin && (
-        <div className="fixed inset-0 z-[100000] bg-slate-950/80 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-6">
-          <EyeOff size={80} className="text-blue-500 mb-6 animate-pulse" />
-          <h2 className="text-3xl font-black text-white mb-3 uppercase tracking-tighter">Terminal Signal Lost</h2>
-          <p className="text-slate-400 max-w-sm text-sm leading-relaxed">Content is obscured for trade security while focusing away from this window.</p>
+        <div className="fixed inset-0 z-[99999] bg-slate-950/80 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-6">
+          <EyeOff size={64} className="text-slate-500 mb-4 animate-pulse" />
+          <h2 className="text-2xl font-bold text-white mb-2 uppercase tracking-tighter">Secure Terminal Locked</h2>
+          <p className="text-slate-400 max-w-xs text-sm">Application content is hidden for your security while the tab is inactive.</p>
         </div>
       )}
 
-      {/* Dynamic Security Watermark - Only for Non-Admins */}
-      {user && !user.isAdmin && (
+      {/* Dynamic Watermark Overlay */}
+      {user && (
         <div className="watermark">
-          {Array.from({ length: 30 }).map((_, i) => (
-            <div key={i} className="watermark-text text-sm">
-              {user.phoneNumber} • {user.id}
+          {Array.from({ length: 40 }).map((_, i) => (
+            <div key={i} className="watermark-text text-sm md:text-base">
+              {user.phoneNumber} <span className="opacity-40">{user.id}</span>
             </div>
           ))}
         </div>
@@ -103,7 +107,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
       {/* Mobile Header */}
       <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-50 sticky top-0">
         <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center text-white shadow-lg">
+            <div className="w-8 h-8 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-lg flex items-center justify-center text-white shadow-lg">
                 <Scale size={18} strokeWidth={2.5} />
             </div>
             <span className="font-bold text-lg text-white tracking-tight">LibraQuant</span>
@@ -119,12 +123,12 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
         } flex flex-col`}
       >
         <div className="p-6 hidden md:flex items-center space-x-3 mb-6">
-          <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center text-white shadow-lg shadow-indigo-900/20">
+          <div className="w-10 h-10 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-purple-900/20">
              <Scale size={22} strokeWidth={2.5} />
           </div>
           <div>
             <h1 className="font-bold text-xl text-white tracking-tight">LibraQuant</h1>
-            <p className="text-xs text-indigo-400 font-mono">LIVE TERMINAL</p>
+            <p className="text-xs text-purple-400 font-mono">PRO TERMINAL</p>
           </div>
         </div>
 
@@ -138,37 +142,38 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
 
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center mb-4 px-2">
-            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 mr-3 border border-slate-700">
+            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 mr-3">
               <UserIcon size={16} />
             </div>
             <div className="overflow-hidden w-full">
-              <p className="text-sm font-bold text-white truncate">{user?.name}</p>
+              <p className="text-sm font-medium text-white truncate">{user?.name}</p>
               
-              <div className={`mt-1 flex items-center space-x-1.5 text-[10px] font-black px-2 py-0.5 rounded transition-all duration-300 ${
+              <div className={`mt-1 flex items-center space-x-1.5 text-xs font-mono font-bold px-2 py-0.5 rounded-md transition-all duration-300 ${
                   isExpired ? 'bg-rose-950 text-rose-500 border border-rose-500/50' : 
-                  isExpiringSoon ? 'bg-rose-600 text-white animate-pulse shadow-[0_0_15px_rgba(225,29,72,0.4)]' : 
-                  'bg-emerald-950 text-emerald-500'
+                  isExpiringSoon ? 'bg-rose-600 text-white animate-pulse border border-white/20 shadow-[0_0_15px_rgba(225,29,72,0.4)]' : 
+                  'bg-emerald-900/20 text-emerald-400'
               }`}>
-                  {isExpired ? 'LOCKED' : `SECURE • ${daysLeft}D`}
+                  {isExpiringSoon || isExpired ? <AlertCircle size={10} className={isExpiringSoon ? 'animate-bounce' : ''} /> : <Clock size={10} />}
+                  <span>{isExpired ? 'EXPIRED' : `${daysLeft} DAYS LEFT`}</span>
               </div>
             </div>
           </div>
-          <button onClick={onLogout} className="flex items-center justify-center w-full py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-rose-900/20 hover:text-rose-400 transition-colors text-sm font-bold">
+          <button onClick={onLogout} className="flex items-center justify-center w-full py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-red-900/20 hover:text-red-400 transition-colors text-sm">
             <LogOut size={16} className="mr-2" />
-            Exit Terminal
+            Sign Out
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 h-screen overflow-y-auto bg-[#020617] relative z-10">
+      <main className="flex-1 h-screen overflow-y-auto bg-slate-950 relative z-10">
         <div className="p-4 md:p-8 max-w-7xl mx-auto pb-24">
             {children}
         </div>
-        <div className="bg-slate-900/90 border-t border-slate-800 p-2 text-center fixed bottom-0 w-full md:w-[calc(100%-16rem)] right-0 backdrop-blur-xl z-50">
-           <div className="text-[10px] text-slate-500 font-mono tracking-wide uppercase">
+        <div className="bg-slate-900/95 border-t border-slate-800 p-2 text-center fixed bottom-0 w-full md:w-[calc(100%-16rem)] right-0 backdrop-blur-md z-50 flex flex-col items-center justify-center space-y-1">
+           <div className="text-[9px] text-slate-500 font-mono tracking-tight opacity-70 uppercase leading-none px-4">
               {FOOTER_TEXT}
            </div>
-           <div className="text-[11px] font-black text-indigo-500 tracking-[0.2em] font-mono mt-0.5">
+           <div className="text-[10px] font-bold text-blue-500/90 tracking-[0.15em] font-mono leading-none pt-0.5">
               {BRANDING_TEXT}
            </div>
         </div>
