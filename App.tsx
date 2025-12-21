@@ -50,7 +50,7 @@ const App: React.FC = () => {
   const prevSignalsRef = useRef<TradeSignal[]>([]);
   const prevWatchRef = useRef<WatchlistItem[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
 
   const playLongBeep = useCallback((isCritical = false) => {
@@ -137,9 +137,9 @@ const App: React.FC = () => {
 
         if (hasAnyChanges) {
           playLongBeep(isCriticalAlert);
-          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+          if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           setGranularHighlights(currentHighlights);
-          timeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
+          highlightTimeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
 
           if (hasSignalChanges) {
             setPage('dashboard');
@@ -178,7 +178,10 @@ const App: React.FC = () => {
   useEffect(() => {
     sync(true);
     const timer = setInterval(() => sync(false), POLL_INTERVAL);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
   }, [sync]);
 
   const toggleSound = () => {

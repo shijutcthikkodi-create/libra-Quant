@@ -9,12 +9,14 @@ interface BookedTradesProps {
   signals: (TradeSignal & { sheetIndex?: number })[];
   user: User;
   granularHighlights: GranularHighlights;
+  onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
 }
 
 const BookedTrades: React.FC<BookedTradesProps> = ({ 
   signals, 
   user, 
-  granularHighlights
+  granularHighlights,
+  onSignalUpdate
 }) => {
   // Helper to get IST Date String for comparison
   const getISTDateKey = (date: Date) => {
@@ -109,6 +111,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
                  signal={signal} 
                  user={user} 
                  highlights={granularHighlights[signal.id]} 
+                 onSignalUpdate={onSignalUpdate}
                />
             </div>
           ))}
