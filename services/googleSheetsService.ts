@@ -1,3 +1,4 @@
+
 import { TradeSignal, WatchlistItem, User, TradeStatus } from '../types';
 
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyFbphSzUzTcjwiqGs3EdCcg2y67fOhmvuq65cXLSvaUJXFRDyrMTJkm6OdrVNPMk_A/exec';
@@ -106,7 +107,8 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         pnlRupees: getVal(s, 'pnlRupees') !== undefined ? Number(getVal(s, 'pnlRupees')) : undefined,
         trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
         comment: String(getVal(s, 'comment') || ''),
-        timestamp: getVal(s, 'timestamp') || new Date().toISOString()
+        timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
+        lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null
       };
     });
 

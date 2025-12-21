@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User } from '../types';
-import { Plus, Trash2, Edit2, List, X, Check, Radio, UserCheck, RefreshCw, Smartphone, Search, Calendar, ShieldCheck, UserPlus, Clock, Target } from 'lucide-react';
+import { Plus, Trash2, Edit2, List, X, Check, Radio, UserCheck, RefreshCw, Smartphone, Search, Calendar, ShieldCheck, UserPlus, Clock, Target, KeyRound, ShieldAlert } from 'lucide-react';
 import { updateSheetData } from '../services/googleSheetsService';
 
 interface AdminProps {
@@ -47,6 +48,10 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   const [newUserPhone, setNewUserPhone] = useState('');
   const [newUserPass, setNewUserPass] = useState('');
   const [newUserExpiry, setNewUserExpiry] = useState(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+
+  // Client Password Edit State
+  const [editingUserPassId, setEditingUserPassId] = useState<string | null>(null);
+  const [tempPassword, setTempPassword] = useState('');
 
   const handleAddSignal = async () => {
     if (!sigSymbol || !sigEntry || !sigSL) return;
@@ -150,6 +155,24 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     const success = await updateSheetData('users', 'UPDATE_USER', updatedUser, userId);
     if (success) {
       onUpdateUsers(users.map(u => u.id === userId ? updatedUser : u));
+    }
+    setIsSaving(false);
+  };
+
+  const handleUpdatePassword = async (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user || !tempPassword) return;
+    setIsSaving(true);
+    
+    // CRITICAL REQUIREMENT: Updating password also removes the device lock
+    // This allows the next login (on any device) to capture the hardware ID as the new lock.
+    const updatedUser = { ...user, password: tempPassword, deviceId: null };
+    
+    const success = await updateSheetData('users', 'UPDATE_USER', updatedUser, userId);
+    if (success) {
+      onUpdateUsers(users.map(u => u.id === userId ? updatedUser : u));
+      setEditingUserPassId(null);
+      setTempPassword('');
     }
     setIsSaving(false);
   };
@@ -520,6 +543,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                               {filteredUsers.map(u => {
                                   const isExpired = new Date(u.expiryDate) <= new Date();
                                   const expiresSoon = !isExpired && (new Date(u.expiryDate).getTime() - Date.now()) < (7 * 24 * 60 * 60 * 1000);
+                                  const isEditingPass = editingUserPassId === u.id;
 
                                   return (
                                     <tr key={u.id} className="hover:bg-slate-800/20 group transition-all">
@@ -565,21 +589,46 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                                                     >
                                                         <RefreshCw size={8} className="mr-1" /> Release Lock
                                                     </button>
-                                                ) : <span className="text-[9px] text-slate-600 uppercase font-bold tracking-tighter">Auto-locks on first login</span>}
+                                                ) : <span className="text-[9px] text-slate-600 uppercase font-bold tracking-tighter">Auto-locks on login</span>}
                                             </div>
                                         </td>
                                         <td className="p-4 text-right pr-6">
                                             <div className="flex items-center justify-end space-x-2">
+                                                {isEditingPass ? (
+                                                   <div className="flex flex-col space-y-2 items-end">
+                                                      <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-lg border border-blue-500">
+                                                          <input 
+                                                            type="text" 
+                                                            value={tempPassword} 
+                                                            onChange={(e) => setTempPassword(e.target.value)} 
+                                                            placeholder="New Key"
+                                                            className="w-28 bg-transparent text-xs text-white outline-none px-2 font-mono"
+                                                            autoFocus
+                                                          />
+                                                          <button onClick={() => handleUpdatePassword(u.id)} className="p-1.5 bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 rounded"><Check size={14} /></button>
+                                                          <button onClick={() => setEditingUserPassId(null)} className="p-1.5 bg-rose-500/20 text-rose-500 hover:bg-rose-500/30 rounded"><X size={14} /></button>
+                                                      </div>
+                                                      <span className="text-[8px] text-rose-400 font-bold uppercase animate-pulse">Will also reset device lock</span>
+                                                   </div>
+                                                ) : (
+                                                  <button 
+                                                      onClick={() => { setEditingUserPassId(u.id); setTempPassword(u.password || ''); }}
+                                                      className="p-2.5 bg-slate-800 hover:bg-blue-900/30 text-slate-400 hover:text-blue-400 rounded-lg transition-all border border-slate-700"
+                                                      title="Change Key & Reset HW-Lock"
+                                                  >
+                                                      <KeyRound size={16} />
+                                                  </button>
+                                                )}
                                                 <button 
                                                     onClick={() => handleExtendAccess(u.id, 30)}
-                                                    className="p-2 bg-slate-800 hover:bg-emerald-900/30 text-slate-400 hover:text-emerald-400 rounded-lg transition-all"
+                                                    className="p-2.5 bg-slate-800 hover:bg-emerald-900/30 text-slate-400 hover:text-emerald-400 rounded-lg transition-all border border-slate-700"
                                                     title="Extend 30 Days"
                                                 >
                                                     <Calendar size={16} />
                                                 </button>
                                                 <button 
                                                     onClick={() => handleDeleteUser(u.id)}
-                                                    className="p-2 bg-slate-800 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 rounded-lg transition-all"
+                                                    className="p-2.5 bg-slate-800 hover:bg-rose-900/30 text-slate-400 hover:text-rose-400 rounded-lg transition-all border border-slate-700"
                                                     title="Terminate Access"
                                                 >
                                                     <Trash2 size={16} />
