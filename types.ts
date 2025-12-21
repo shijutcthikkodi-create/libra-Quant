@@ -1,8 +1,10 @@
+
 export enum TradeStatus {
   ACTIVE = 'ACTIVE',
   PARTIAL = 'PARTIAL BOOKED',
   EXITED = 'EXITED',
-  STOPPED = 'STOP LOSS HIT'
+  STOPPED = 'STOP LOSS HIT',
+  ALL_TARGET = 'ALL TARGET DONE'
 }
 
 export enum InstrumentType {

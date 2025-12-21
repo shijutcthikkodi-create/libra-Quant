@@ -30,7 +30,7 @@ const Stats: React.FC<StatsProps> = ({ signals = [] }) => {
     const { dateKey: todayKey, month: currentMonth, year: currentYear } = getISTDetails(now);
 
     const closedTrades = signals.filter(s => 
-      s.status === TradeStatus.EXITED || s.status === TradeStatus.STOPPED
+      s.status === TradeStatus.EXITED || s.status === TradeStatus.STOPPED || s.status === TradeStatus.ALL_TARGET
     );
 
     let todayPnL = 0;

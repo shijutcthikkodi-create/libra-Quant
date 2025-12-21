@@ -11,9 +11,10 @@ interface AdminProps {
   onUpdateSignals: (list: TradeSignal[]) => void;
   users: User[];
   onUpdateUsers: (list: User[]) => void;
+  onNavigate: (page: string) => void;
 }
 
-const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, onUpdateSignals, users, onUpdateUsers }) => {
+const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, onUpdateSignals, users, onUpdateUsers, onNavigate }) => {
   const [activeTab, setActiveTab] = useState<'SIGNALS' | 'WATCHLIST' | 'CLIENTS'>('SIGNALS');
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,6 +78,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
       onUpdateSignals([newSignal, ...signals]);
       setSigSymbol(''); setSigEntry(''); setSigSL(''); setSigTargets(''); setSigComment('');
       setIsAddingSignal(false);
+      onNavigate('dashboard');
     }
     setIsSaving(false);
   };
@@ -86,17 +88,21 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     setIsSaving(true);
     const updatedSignal = signals.find(s => s.id === editingSignalId);
     if (updatedSignal) {
+        const tslVal = editSigTrail ? parseFloat(editSigTrail) : undefined;
         const payload = {
             ...updatedSignal,
             status: editSigStatus,
             pnlPoints: editSigPnl ? parseFloat(editSigPnl) : undefined,
             pnlRupees: editSigPnlRupees ? parseFloat(editSigPnlRupees) : undefined,
-            trailingSL: editSigTrail ? parseFloat(editSigTrail) : undefined,
+            trailingSL: tslVal,
+            // Sync Stop Loss with Trailing SL if Trailing SL is being set
+            stopLoss: (tslVal !== undefined && !isNaN(tslVal)) ? tslVal : updatedSignal.stopLoss,
             targetsHit: editSigTargetsHit
         };
         const success = await updateSheetData('signals', 'UPDATE_SIGNAL', payload, editingSignalId);
         if (success) {
           onUpdateSignals(signals.map(s => s.id === editingSignalId ? payload : s));
+          onNavigate('dashboard');
         }
     }
     setEditingSignalId(null);
@@ -164,8 +170,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     if (!user || !tempPassword) return;
     setIsSaving(true);
     
-    // CRITICAL REQUIREMENT: Updating password also removes the device lock
-    // This allows the next login (on any device) to capture the hardware ID as the new lock.
     const updatedUser = { ...user, password: tempPassword, deviceId: null };
     
     const success = await updateSheetData('users', 'UPDATE_USER', updatedUser, userId);
@@ -216,7 +220,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
         <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-800 mt-4 md:mt-0">
             {[
               { id: 'SIGNALS', icon: Radio, label: 'Signals' },
-              { id: 'WATCHLIST', icon: List, label: 'Market' },
+              { id: 'WATCHLIST', icon: List, label: 'Watch List' },
               { id: 'CLIENTS', icon: UserCheck, label: 'Clients' }
             ].map((tab) => (
               <button 
@@ -331,6 +335,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                                               </select>
                                           ) : <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
                                               s.status === TradeStatus.ACTIVE ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5' :
+                                              s.status === TradeStatus.ALL_TARGET ? 'border-emerald-500/50 text-emerald-400 bg-emerald-900/20' :
                                               s.status === TradeStatus.EXITED ? 'border-slate-700 text-slate-500 bg-slate-800' :
                                               'border-rose-500/30 text-rose-400 bg-rose-500/5'
                                           }`}>{s.status}</span>}
@@ -403,7 +408,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
             <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
                 <div className="flex items-center space-x-3">
                     <div className="p-2 bg-blue-500/20 text-blue-400 rounded-lg"><List size={20} /></div>
-                    <h3 className="text-lg font-bold text-white">Market Watch Configuration</h3>
+                    <h3 className="text-lg font-bold text-white">Watch List Configuration</h3>
                 </div>
                 <button onClick={() => setIsAddingWatch(!isAddingWatch)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center transition-all">
                     {isAddingWatch ? <X size={14} className="mr-2" /> : <Plus size={14} className="mr-2" />} 
@@ -464,7 +469,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
 
       {activeTab === 'CLIENTS' && (
           <div className="space-y-6">
-              {/* Stats Overview */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl shadow-lg">
                       <p className="text-[10px] text-slate-500 uppercase font-bold mb-2 tracking-widest">Total Clients</p>
@@ -484,7 +488,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                   </div>
               </div>
 
-              {/* Client Directory */}
               <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
                   <div className="p-5 border-b border-slate-800 bg-slate-800/50 flex flex-col md:flex-row gap-4 items-center justify-between">
                       <div className="relative w-full md:w-96">

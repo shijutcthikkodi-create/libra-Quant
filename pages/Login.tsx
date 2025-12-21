@@ -87,21 +87,21 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         // 4. RIGID DEVICE LOCKING LOGIC
         // Admins are exempt to allow management from multiple terminals
         if (!sheetUser.isAdmin) {
-            const savedDeviceId = sheetUser.deviceId ? String(sheetUser.deviceId).trim() : null;
+            const rawId = String(sheetUser.deviceId || '').trim();
+            const savedDeviceId = (rawId && rawId !== "null" && rawId !== "undefined") ? rawId : null;
             
             // If device ID exists in database and it DOES NOT match the current browser ID
-            if (savedDeviceId && savedDeviceId !== "" && savedDeviceId !== "null" && savedDeviceId !== browserDeviceId) {
+            if (savedDeviceId && savedDeviceId !== browserDeviceId) {
                 setError('SECURITY VIOLATION: This account is locked to another device. Multi-device login is strictly prohibited.');
                 setLoading(false);
                 return;
             }
             
-            // If no device ID is saved yet, bind this device to the account
-            if (!savedDeviceId || savedDeviceId === "" || savedDeviceId === "null") {
+            // If no device ID is saved yet (either first login or admin reset), bind this device
+            if (!savedDeviceId) {
                 const updatedUser = { ...sheetUser, deviceId: browserDeviceId };
                 const success = await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
                 if (!success) {
-                    // Fallback: If sheet update fails, we proceed but log a warning
                     console.warn("Could not bind device ID to sheet, proceeding with local bind.");
                 }
             }

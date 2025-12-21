@@ -10,15 +10,16 @@ interface DashboardProps {
   signals: (TradeSignal & { sheetIndex?: number })[];
   user: User;
   granularHighlights: GranularHighlights;
+  onSignalUpdate: (updated: TradeSignal) => Promise<boolean>;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   watchlist, 
   signals, 
   user, 
-  granularHighlights
+  granularHighlights,
+  onSignalUpdate
 }) => {
-  // RELAXED FILTER: Show all signals that are ACTIVE or PARTIAL booked, regardless of the creation date.
   const liveSignals = useMemo(() => {
     return signals.filter(signal => {
       return signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
@@ -116,6 +117,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 signal={signal} 
                                 user={user} 
                                 highlights={granularHighlights[signal.id]} 
+                                onSignalUpdate={onSignalUpdate}
                             />
                           </div>
                         );
@@ -129,7 +131,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50 backdrop-blur">
                     <div className="flex items-center space-x-2">
                         <List size={16} className="text-blue-400" />
-                        <h3 className="font-bold text-white text-sm uppercase tracking-widest">Market Watch</h3>
+                        <h3 className="font-bold text-white text-sm uppercase tracking-widest">Watch List</h3>
                     </div>
                 </div>
                 <div className="divide-y divide-slate-800">

@@ -8,7 +8,7 @@ import Rules from './pages/Rules';
 import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus } from './types';
-import { fetchSheetData } from './services/googleSheetsService';
+import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
 import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff } from 'lucide-react';
 
@@ -69,7 +69,7 @@ const App: React.FC = () => {
       gain.gain.setValueAtTime(0, ctx.currentTime);
       gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.05);
       gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + (isCritical ? 1.2 : 0.7));
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (isCritical ? (isCritical ? 1.3 : 1.3) : 0.8));
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (isCritical ? 1.3 : 0.8));
       
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -87,6 +87,7 @@ const App: React.FC = () => {
       const data = await fetchSheetData();
       if (data) {
         let hasAnyChanges = false;
+        let hasSignalChanges = false;
         let isCriticalAlert = false;
         const currentHighlights: GranularHighlights = {};
 
@@ -112,7 +113,11 @@ const App: React.FC = () => {
                 }
               });
             }
-            if (diff.size > 0) { currentHighlights[sid] = diff; hasAnyChanges = true; }
+            if (diff.size > 0) { 
+              currentHighlights[sid] = diff; 
+              hasAnyChanges = true; 
+              hasSignalChanges = true; 
+            }
           });
 
           data.watchlist.forEach(w => {
@@ -135,6 +140,10 @@ const App: React.FC = () => {
           if (timeoutRef.current) clearTimeout(timeoutRef.current);
           setGranularHighlights(currentHighlights);
           timeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
+
+          if (hasSignalChanges) {
+            setPage('dashboard');
+          }
         }
 
         const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -153,6 +162,18 @@ const App: React.FC = () => {
       isFetchingRef.current = false;
     }
   }, [playLongBeep]);
+
+  // Global callback for signal updates (used by Card or Admin Panel)
+  const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
+    const success = await updateSheetData('signals', 'UPDATE_SIGNAL', updatedSignal, updatedSignal.id);
+    if (success) {
+      setSignals(prev => prev.map(s => s.id === updatedSignal.id ? updatedSignal : s));
+      setPage('dashboard');
+      // Update ref to prevent sync duplication
+      prevSignalsRef.current = prevSignalsRef.current.map(s => s.id === updatedSignal.id ? updatedSignal : s);
+    }
+    return success;
+  }, []);
 
   useEffect(() => {
     sync(true);
@@ -212,11 +233,11 @@ const App: React.FC = () => {
         </div>
       )}
       
-      {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} />}
-      {page === 'booked' && <BookedTrades signals={signals} user={user} granularHighlights={granularHighlights} />}
+      {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
+      {page === 'booked' && <BookedTrades signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
       {page === 'stats' && <Stats signals={signals} />}
       {page === 'rules' && <Rules />}
-      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} />}
+      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} onNavigate={setPage} />}
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">

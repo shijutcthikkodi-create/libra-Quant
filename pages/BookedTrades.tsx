@@ -31,7 +31,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
 
     return signals.filter(signal => {
       const status = signal.status;
-      const isBooked = status !== TradeStatus.ACTIVE && status !== TradeStatus.PARTIAL;
+      const isBooked = status === TradeStatus.EXITED || status === TradeStatus.STOPPED || status === TradeStatus.ALL_TARGET;
       
       if (!isBooked) return false;
 

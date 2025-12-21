@@ -47,16 +47,24 @@ const getVal = (obj: any, targetKey: string): any => {
   return undefined;
 };
 
-const normalizeStatus = (statusStr: string): TradeStatus => {
-  if (!statusStr) return TradeStatus.ACTIVE;
-  const s = statusStr.toUpperCase().trim();
+/**
+ * Robust status normalizer that handles numbers (like 3) and various string inputs.
+ */
+const normalizeStatus = (val: any): TradeStatus => {
+  if (val === undefined || val === null || val === '') return TradeStatus.ACTIVE;
+  
+  // Safely convert to string and normalize
+  const s = String(val).toUpperCase().trim();
+  
+  // Custom mapping: If user types "3" or "ALL TARGET" in sheet, mark as closed/completed
+  if (s === '3' || s.includes('ALL TARGET')) return TradeStatus.ALL_TARGET;
   
   if (s.includes('ACTIVE') || s.includes('LIVE')) return TradeStatus.ACTIVE;
   if (s.includes('PARTIAL') || s.includes('BOOKED')) return TradeStatus.PARTIAL;
   if (s.includes('STOP') || s.includes('SL HIT') || s.includes('LOSS') || s.includes('STOPPED')) return TradeStatus.STOPPED;
   if (s.includes('EXIT') || s.includes('CLOSE') || s.includes('SQUARE')) return TradeStatus.EXITED;
   
-  return statusStr as TradeStatus;
+  return TradeStatus.ACTIVE; // Default fallback
 };
 
 export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => {
