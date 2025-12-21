@@ -1,5 +1,5 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import SignalCard from '../components/SignalCard';
 import { Bell, List, Clock, Zap, Activity } from 'lucide-react';
 import { WatchlistItem, TradeSignal, User, TradeStatus } from '../types';
@@ -38,6 +38,28 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [liveSignals]);
 
   const latestSignal = sortedSignals[0];
+  const lastScrolledId = useRef<string | null>(null);
+
+  // Auto-scroll to the updated card
+  useEffect(() => {
+    const updatedIds = Object.keys(granularHighlights).filter(id => 
+      liveSignals.some(s => s.id === id)
+    );
+    
+    if (updatedIds.length > 0) {
+      const targetId = updatedIds[0];
+      // Only scroll if it's a new update we haven't scrolled to in this specific blast cycle
+      if (lastScrolledId.current !== targetId) {
+        const element = document.getElementById(`signal-${targetId}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          lastScrolledId.current = targetId;
+          // Clear the ref after a delay so it can scroll again if the same card updates later
+          setTimeout(() => { lastScrolledId.current = null; }, 2000);
+        }
+      }
+    }
+  }, [granularHighlights, liveSignals]);
 
   return (
     <div className="space-y-6">
@@ -67,7 +89,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-40 transition-opacity">
             <Zap size={60} className="text-emerald-500" />
           </div>
-          <div className="bg-slate-950/80 backdrop-blur-sm rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between border border-emerald-500/20">
+          <div className="bg-slate-950/80 backdrop-blur-sm rounded-lg p-4 flex flex-col sm:row items-start sm:items-center justify-between border border-emerald-500/20">
             <div className="flex items-center space-x-4">
               <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 animate-pulse">
                 <Zap size={20} fill="currentColor" />
@@ -86,7 +108,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div className="mt-3 sm:mt-0 flex items-center space-x-3">
               <button 
-                onClick={() => document.getElementById(`signal-${latestSignal.id}`)?.scrollIntoView({ behavior: 'smooth' })}
+                onClick={() => document.getElementById(`signal-${latestSignal.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                 className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-all shadow-lg shadow-emerald-500/20 uppercase tracking-widest"
               >
                 View Details

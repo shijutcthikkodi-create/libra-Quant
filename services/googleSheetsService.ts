@@ -93,10 +93,26 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
     const data = robustParseJson(rawText);
     
     const formattedSignals = (data.signals || []).map((s: any, index: number) => {
-      let targetsRaw = getVal(s, 'targets');
-      let parsedTargets: number[] = Array.isArray(targetsRaw) ? targetsRaw.map(Number) : 
-                                   (typeof targetsRaw === 'string' ? targetsRaw.split(',').map(t => Number(t.trim())).filter(n => !isNaN(n)) : [Number(targetsRaw)]);
+      // Robust Target Parsing
+      const rawTargets = getVal(s, 'targets');
+      let parsedTargets: number[] = [];
       
+      if (typeof rawTargets === 'string' && rawTargets.trim() !== '') {
+        parsedTargets = rawTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
+      } else if (Array.isArray(rawTargets)) {
+        parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
+      } else if (typeof rawTargets === 'number' && !isNaN(rawTargets)) {
+        parsedTargets = [rawTargets];
+      }
+      
+      // Fallback: Check for Target 1, Target 2, Target 3 as separate columns
+      if (parsedTargets.length === 0) {
+        [1, 2, 3].forEach(i => {
+          const val = parseFloat(getVal(s, `target${i}`));
+          if (!isNaN(val) && val !== 0) parsedTargets.push(val);
+        });
+      }
+
       const rawStatus = getVal(s, 'status');
       
       return {

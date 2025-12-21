@@ -18,6 +18,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   const [activeTab, setActiveTab] = useState<'SIGNALS' | 'WATCHLIST' | 'CLIENTS'>('SIGNALS');
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // --- Watchlist State ---
   const [isAddingWatch, setIsAddingWatch] = useState(false);
@@ -55,18 +56,73 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   const [tempPassword, setTempPassword] = useState('');
 
   const handleAddSignal = async () => {
-    if (!sigSymbol || !sigEntry || !sigSL) return;
-    setIsSaving(true);
+    setValidationError(null);
+    if (!sigSymbol || !sigEntry || !sigSL) {
+      setValidationError("Symbol, Entry, and SL are required.");
+      return;
+    }
+
+    const entry = parseFloat(sigEntry);
+    const sl = parseFloat(sigSL);
+    if (isNaN(entry) || isNaN(sl)) {
+      setValidationError("Invalid price values.");
+      return;
+    }
+
     const targets = sigTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
+
+    // VALIDATION LOGIC
+    if (sigAction === 'BUY') {
+      if (sl >= entry) {
+        setValidationError("For BUY: Stop Loss must be LOWER than Entry Price.");
+        return;
+      }
+      if (targets.length > 0 && targets[0] <= entry) {
+        setValidationError("For BUY: Target 1 must be HIGHER than Entry Price.");
+        return;
+      }
+    } else { // SELL
+      if (sl <= entry) {
+        setValidationError("For SELL: Stop Loss must be HIGHER than Entry Price.");
+        return;
+      }
+      if (targets.length > 0 && targets[0] >= entry) {
+        setValidationError("For SELL: Target 1 must be LOWER than Entry Price.");
+        return;
+      }
+    }
+
+    setIsSaving(true);
+    
+    // Improved Default Targets Logic
+    let finalTargets = targets;
+    if (finalTargets.length === 0) {
+      const risk = Math.abs(entry - sl);
+      const rrFactor = 1.5;
+      if (sigAction === 'BUY') {
+        finalTargets = [
+          Number((entry + risk * rrFactor).toFixed(2)),
+          Number((entry + risk * rrFactor * 2).toFixed(2)),
+          Number((entry + risk * rrFactor * 3).toFixed(2))
+        ];
+      } else {
+        finalTargets = [
+          Number((entry - risk * rrFactor).toFixed(2)),
+          Number((entry - risk * rrFactor * 2).toFixed(2)),
+          Number((entry - risk * rrFactor * 3).toFixed(2))
+        ];
+      }
+    }
+
     const newSignal: TradeSignal = {
         id: `SIG-${Date.now().toString().slice(-4)}`,
         instrument: sigInstrument,
         symbol: sigSymbol,
         type: sigType,
         action: sigAction,
-        entryPrice: parseFloat(sigEntry),
-        stopLoss: parseFloat(sigSL),
-        targets: targets.length > 0 ? targets : [parseFloat(sigEntry) * 1.1],
+        entryPrice: entry,
+        stopLoss: sl,
+        targets: finalTargets,
         targetsHit: 0,
         status: TradeStatus.ACTIVE,
         timestamp: new Date().toISOString(),
@@ -79,6 +135,8 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
       setSigSymbol(''); setSigEntry(''); setSigSL(''); setSigTargets(''); setSigComment('');
       setIsAddingSignal(false);
       onNavigate('dashboard');
+    } else {
+      setValidationError("Failed to save to Cloud. Please check your connection.");
     }
     setIsSaving(false);
   };
@@ -95,7 +153,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
             pnlPoints: editSigPnl ? parseFloat(editSigPnl) : undefined,
             pnlRupees: editSigPnlRupees ? parseFloat(editSigPnlRupees) : undefined,
             trailingSL: tslVal,
-            // Sync Stop Loss with Trailing SL if Trailing SL is being set
             stopLoss: (tslVal !== undefined && !isNaN(tslVal)) ? tslVal : updatedSignal.stopLoss,
             targetsHit: editSigTargetsHit
         };
@@ -243,14 +300,14 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                           <div className="p-2 bg-blue-500/20 text-blue-400 rounded-lg"><Radio size={20} /></div>
                           <h3 className="text-lg font-bold text-white">Signal Dispatch</h3>
                       </div>
-                      <button onClick={() => setIsAddingSignal(!isAddingSignal)} className={`flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-colors ${isAddingSignal ? 'bg-slate-700 text-white' : 'bg-blue-600 text-white'}`}>
+                      <button onClick={() => { setIsAddingSignal(!isAddingSignal); setValidationError(null); }} className={`flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-colors ${isAddingSignal ? 'bg-slate-700 text-white' : 'bg-blue-600 text-white'}`}>
                           {isAddingSignal ? <X size={14} className="mr-2" /> : <Plus size={14} className="mr-2" />}
                           {isAddingSignal ? 'Cancel' : 'New Signal'}
                       </button>
                   </div>
 
                   {isAddingSignal && (
-                      <div className="p-6 bg-slate-800/30 border-b border-slate-800">
+                      <div className="p-6 bg-slate-800/30 border-b border-slate-800 animate-in slide-in-from-top-4">
                           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-xs font-bold text-slate-500">
                               <div>
                                   <label className="block mb-1 text-[10px] uppercase">Instrument</label>
@@ -277,8 +334,8 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                               <div>
                                   <label className="block mb-1 text-[10px] uppercase">Action</label>
                                   <div className="flex bg-slate-950 rounded p-1 border border-slate-700">
-                                      <button onClick={() => setSigAction('BUY')} className={`flex-1 py-1.5 rounded text-[10px] font-bold ${sigAction === 'BUY' ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>BUY</button>
-                                      <button onClick={() => setSigAction('SELL')} className={`flex-1 py-1.5 rounded text-[10px] font-bold ${sigAction === 'SELL' ? 'bg-rose-600 text-white' : 'text-slate-500'}`}>SELL</button>
+                                      <button onClick={() => setSigAction('BUY')} className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-all ${sigAction === 'BUY' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-400'}`}>BUY</button>
+                                      <button onClick={() => setSigAction('SELL')} className={`flex-1 py-1.5 rounded text-[10px] font-bold transition-all ${sigAction === 'SELL' ? 'bg-rose-600 text-white' : 'text-slate-500 hover:text-slate-400'}`}>SELL</button>
                                   </div>
                               </div>
                           </div>
@@ -292,17 +349,25 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                                   <input type="number" value={sigSL} onChange={e => setSigSL(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-white" />
                               </div>
                               <div className="md:col-span-2">
-                                  <label className="block mb-1 text-[10px] uppercase">Targets (e.g. 100, 110, 120)</label>
-                                  <input type="text" value={sigTargets} onChange={e => setSigTargets(e.target.value)} placeholder="100, 110, 120" className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-white" />
+                                  <label className="block mb-1 text-[10px] uppercase">Targets (e.g. 100, 90, 80 for SELL)</label>
+                                  <input type="text" value={sigTargets} onChange={e => setSigTargets(e.target.value)} placeholder="Separate by comma or leave empty for default" className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-white" />
                               </div>
                           </div>
+                          
+                          {validationError && (
+                            <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg flex items-center text-rose-400 text-[10px] font-bold uppercase tracking-widest animate-pulse">
+                              <ShieldAlert size={14} className="mr-2 shrink-0" />
+                              {validationError}
+                            </div>
+                          )}
+
                           <div className="mb-4">
                               <label className="block mb-1 text-[10px] uppercase font-bold text-slate-500">Comments</label>
-                              <input type="text" value={sigComment} onChange={e => setSigComment(e.target.value)} placeholder="Strong breakout setup..." className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-white text-xs" />
+                              <input type="text" value={sigComment} onChange={e => setSigComment(e.target.value)} placeholder="Setup logic..." className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-white text-xs" />
                           </div>
-                          <button onClick={handleAddSignal} disabled={isSaving} className="w-full bg-emerald-600 py-2.5 rounded-lg text-sm font-bold text-white flex items-center justify-center transition-all hover:bg-emerald-500 disabled:opacity-50">
+                          <button onClick={handleAddSignal} disabled={isSaving} className="w-full bg-emerald-600 py-2.5 rounded-lg text-sm font-bold text-white flex items-center justify-center transition-all hover:bg-emerald-500 disabled:opacity-50 shadow-lg shadow-emerald-900/20">
                               {isSaving ? <RefreshCw className="animate-spin mr-2" size={16} /> : <Check className="mr-2" size={16} />}
-                              {isSaving ? 'Processing...' : 'Broadcast Signal'}
+                              {isSaving ? 'Synchronizing Cloud...' : 'Broadcast Signal'}
                           </button>
                       </div>
                   )}

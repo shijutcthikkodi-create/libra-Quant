@@ -73,7 +73,6 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
     const val = trailValue.trim() === '' ? null : parseFloat(trailValue);
     if (onSignalUpdate) {
         setIsSavingTrail(true);
-        // When updating TSL, we also update the main Stop Loss to the same value
         const success = await onSignalUpdate({
             ...signal,
             trailingSL: val,
@@ -90,7 +89,17 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
     }
   };
 
-  const riskReward = (signal.targets[0] - signal.entryPrice) / (signal.entryPrice - (signal.stopLoss || 1));
+  // Safe Risk Reward calculation with fallback to 0
+  let riskReward = 0;
+  if (signal.targets && signal.targets.length > 0) {
+    const risk = Math.abs(signal.entryPrice - (signal.stopLoss || 1));
+    if (risk > 0) {
+      riskReward = isBuy 
+        ? (signal.targets[0] - signal.entryPrice) / risk
+        : (signal.entryPrice - signal.targets[0]) / risk;
+    }
+  }
+  
   const riskGrade = riskReward >= 2.5 ? 'A+' : riskReward >= 1.5 ? 'B' : 'C-';
 
   return (
@@ -123,7 +132,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
           </div>
           <div>
             <div className="flex items-center space-x-2 mb-0.5">
-                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${isBuy ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-white'}`}>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${isBuy ? 'bg-emerald-500 text-slate-950 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-rose-500 text-white shadow-[0_0_10px_rgba(244,63,94,0.3)]'}`}>
                     {signal.action}
                 </span>
                 <h3 className={`text-xl font-bold text-white tracking-tight font-mono ${highlights?.has('instrument') ? 'animate-blink' : ''}`}>{signal.instrument}</h3>
@@ -222,7 +231,8 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         </div>
         
         <div className="grid grid-cols-3 gap-2">
-            {signal.targets && signal.targets.length > 0 ? signal.targets.map((t, idx) => {
+            {signal.targets && signal.targets.length > 0 ? (
+              signal.targets.map((t, idx) => {
                 const isHit = isAllTarget || (signal.targetsHit || 0) > idx;
                 return (
                   <div key={idx} className={`rounded px-2 py-2 text-center border transition-all duration-700 ${getTargetStyle(idx)} ${highlights?.has('blast') && isHit ? 'scale-110' : ''}`}>
@@ -231,8 +241,14 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                       {isHit && <Check size={8} className="mx-auto mt-1" />}
                   </div>
                 );
-            }) : (
-              <div className="col-span-3 text-center py-2 text-[10px] text-slate-600 italic">No targets defined</div>
+              })
+            ) : (
+              <div className="col-span-3 text-center py-4 bg-slate-950/50 border border-slate-800 rounded-lg">
+                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest flex items-center justify-center">
+                  <AlertTriangle size={12} className="mr-2" />
+                  No targets defined
+                </p>
+              </div>
             )}
         </div>
 
