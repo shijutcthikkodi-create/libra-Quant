@@ -20,20 +20,22 @@ const Dashboard: React.FC<DashboardProps> = ({
   granularHighlights,
   onSignalUpdate
 }) => {
-  // Grace period for showing closed trades on live page (60 seconds)
   const GRACE_PERIOD_MS = 60 * 1000;
 
   const liveSignals = useMemo(() => {
     const now = Date.now();
-    return signals.filter(signal => {
+    return (signals || []).filter(signal => {
       const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
       if (isLive) return true;
 
-      // Ghosting logic: If signal just closed, keep it for 60 seconds
+      // Ghosting logic
       const closeTimeStr = signal.lastTradedTimestamp || signal.timestamp;
-      const closeTime = new Date(closeTimeStr).getTime();
-      const isRecentlyClosed = (now - closeTime) < GRACE_PERIOD_MS;
-      
+      if (!closeTimeStr) return false;
+
+      const dateObj = new Date(closeTimeStr);
+      if (isNaN(dateObj.getTime())) return false;
+
+      const isRecentlyClosed = (now - dateObj.getTime()) < GRACE_PERIOD_MS;
       return isRecentlyClosed;
     });
   }, [signals]);
@@ -42,7 +44,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return [...liveSignals].sort((a, b) => {
       const timeA = new Date(a.timestamp).getTime();
       const timeB = new Date(b.timestamp).getTime();
-      if (timeA !== timeB) return timeB - timeA;
+      if (timeA !== timeB) return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
       const indexA = a.sheetIndex ?? 0;
       const indexB = b.sheetIndex ?? 0;
       return indexB - indexA;
@@ -71,6 +73,9 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   }, [granularHighlights, liveSignals]);
 
+  // Check if latestSignal is actually active for the banner
+  const isBannerActive = latestSignal && (latestSignal.status === TradeStatus.ACTIVE || latestSignal.status === TradeStatus.PARTIAL);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between">
@@ -94,7 +99,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {latestSignal && (latestSignal.status === TradeStatus.ACTIVE || latestSignal.status === TradeStatus.PARTIAL) && (
+      {isBannerActive && (
         <div className="relative group overflow-hidden rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-1">
           <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-40 transition-opacity">
             <Zap size={60} className="text-emerald-500" />

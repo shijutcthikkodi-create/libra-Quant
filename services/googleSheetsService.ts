@@ -92,58 +92,73 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
 
     const data = robustParseJson(rawText);
     
-    const formattedSignals = (data.signals || []).map((s: any, index: number) => {
-      // Robust Target Parsing
-      const rawTargets = getVal(s, 'targets');
-      let parsedTargets: number[] = [];
-      
-      if (typeof rawTargets === 'string' && rawTargets.trim() !== '') {
-        parsedTargets = rawTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
-      } else if (Array.isArray(rawTargets)) {
-        parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
-      } else if (typeof rawTargets === 'number' && !isNaN(rawTargets)) {
-        parsedTargets = [rawTargets];
-      }
-      
-      // Fallback: Check for Target 1, Target 2, Target 3 as separate columns
-      if (parsedTargets.length === 0) {
-        [1, 2, 3].forEach(i => {
-          const val = parseFloat(getVal(s, `target${i}`));
-          if (!isNaN(val) && val !== 0) parsedTargets.push(val);
-        });
-      }
+    const formattedSignals = (data.signals || [])
+      .map((s: any, index: number) => {
+        const instrument = String(getVal(s, 'instrument') || '').trim();
+        const symbol = String(getVal(s, 'symbol') || '').trim();
 
-      const rawStatus = getVal(s, 'status');
-      
-      return {
-        ...s,
-        id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
-        sheetIndex: index,
-        instrument: String(getVal(s, 'instrument') || 'NIFTY'),
-        symbol: String(getVal(s, 'symbol') || ''),
-        entryPrice: Number(getVal(s, 'entryPrice') || 0),
-        stopLoss: Number(getVal(s, 'stopLoss') || 0),
-        targets: parsedTargets,
-        targetsHit: Number(getVal(s, 'targetsHit') || 0), 
-        action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
-        status: normalizeStatus(rawStatus),
-        pnlPoints: Number(getVal(s, 'pnlPoints') || 0),
-        pnlRupees: getVal(s, 'pnlRupees') !== undefined ? Number(getVal(s, 'pnlRupees')) : undefined,
-        trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
-        comment: String(getVal(s, 'comment') || ''),
-        timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
-        lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null
-      };
-    });
+        // If either instrument or symbol is empty, we treat this row as "cleaned" or "empty"
+        if (!instrument || !symbol) return null;
 
-    const formattedWatch = (data.watchlist || []).map((w: any) => ({
-      ...w,
-      symbol: String(getVal(w, 'symbol') || '').trim(),
-      price: Number(getVal(w, 'price') || 0),
-      change: Number(getVal(w, 'change') || 0),
-      isPositive: Number(getVal(w, 'change') || 0) >= 0,
-      lastUpdated: formatToIST(getVal(w, 'lastUpdated'))
-    }));
+        // Robust Target Parsing
+        const rawTargets = getVal(s, 'targets');
+        let parsedTargets: number[] = [];
+        
+        if (typeof rawTargets === 'string' && rawTargets.trim() !== '') {
+          parsedTargets = rawTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
+        } else if (Array.isArray(rawTargets)) {
+          parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
+        } else if (typeof rawTargets === 'number' && !isNaN(rawTargets)) {
+          parsedTargets = [rawTargets];
+        }
+        
+        // Fallback: Check for Target 1, Target 2, Target 3 as separate columns
+        if (parsedTargets.length === 0) {
+          [1, 2, 3].forEach(i => {
+            const val = parseFloat(getVal(s, `target${i}`));
+            if (!isNaN(val) && val !== 0) parsedTargets.push(val);
+          });
+        }
+
+        const rawStatus = getVal(s, 'status');
+        
+        return {
+          ...s,
+          id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
+          sheetIndex: index,
+          instrument,
+          symbol,
+          entryPrice: Number(getVal(s, 'entryPrice') || 0),
+          stopLoss: Number(getVal(s, 'stopLoss') || 0),
+          targets: parsedTargets,
+          targetsHit: Number(getVal(s, 'targetsHit') || 0), 
+          action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
+          status: normalizeStatus(rawStatus),
+          pnlPoints: Number(getVal(s, 'pnlPoints') || 0),
+          pnlRupees: getVal(s, 'pnlRupees') !== undefined ? Number(getVal(s, 'pnlRupees')) : undefined,
+          trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
+          comment: String(getVal(s, 'comment') || ''),
+          timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
+          lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null
+        };
+      })
+      .filter((s: any) => s !== null); // Remove null entries (cleared rows)
+
+    const formattedWatch = (data.watchlist || [])
+      .map((w: any) => {
+        const symbol = String(getVal(w, 'symbol') || '').trim();
+        if (!symbol) return null;
+
+        return {
+          ...w,
+          symbol,
+          price: Number(getVal(w, 'price') || 0),
+          change: Number(getVal(w, 'change') || 0),
+          isPositive: Number(getVal(w, 'change') || 0) >= 0,
+          lastUpdated: formatToIST(getVal(w, 'lastUpdated'))
+        };
+      })
+      .filter((w: any) => w !== null);
 
     const formattedUsers = (data.users || []).map((u: any) => {
       const expiry = getVal(u, 'expiryDate') || getVal(u, 'expiry');
