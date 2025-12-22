@@ -10,13 +10,12 @@ import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, BellRing, MonitorPlay, Moon, Zap, MousePointer2 } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, BellRing } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
 const HIGHLIGHT_DURATION = 15000;
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes to enter idle/standby
 
 export type GranularHighlights = Record<string, Set<string>>;
 
@@ -24,6 +23,8 @@ const SIGNAL_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
   'stopLoss', 'targets', 'trailingSL', 'status', 'pnlPoints', 'pnlRupees', 'comment', 'targetsHit'
 ];
+
+const WATCH_KEYS: Array<keyof WatchlistItem> = ['symbol', 'price', 'change', 'lastUpdated'];
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
@@ -49,86 +50,21 @@ const App: React.FC = () => {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
   
-  // Standby & Wake States
-  const [wakeLockActive, setWakeLockActive] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
-  const [isIdle, setIsIdle] = useState(false);
-  const [wakeLockSupported, setWakeLockSupported] = useState(true);
-  
   const prevSignalsRef = useRef<TradeSignal[]>([]);
+  const prevWatchRef = useRef<WatchlistItem[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
-  const wakeLockRef = useRef<any>(null);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // --- IDLE DETECTION ---
-  const resetIdleTimer = useCallback(() => {
-    setIsIdle(false);
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = setTimeout(() => setIsIdle(true), IDLE_TIMEOUT_MS);
-  }, []);
-
-  useEffect(() => {
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-    events.forEach(e => window.addEventListener(e, resetIdleTimer));
-    resetIdleTimer();
-    return () => {
-      events.forEach(e => window.removeEventListener(e, resetIdleTimer));
-      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    };
-  }, [resetIdleTimer]);
-
-  // --- WAKE LOCK LOGIC ---
-  const requestWakeLock = useCallback(async () => {
-    if (!('wakeLock' in navigator) || !user) return;
-    
-    // Safety: Browser policy often denies WakeLock if tab is not visible or has no interaction
-    if (document.visibilityState !== 'visible') return;
-
-    try {
-      if (wakeLockRef.current) {
-        await wakeLockRef.current.release();
-        wakeLockRef.current = null;
-      }
-      
-      wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-      setWakeLockActive(true);
-      setWakeLockSupported(true);
-      
-      wakeLockRef.current.addEventListener('release', () => {
-        setWakeLockActive(false);
-        wakeLockRef.current = null;
-      });
-    } catch (err: any) {
-      setWakeLockActive(false);
-      // If disallowed by permissions policy, we stop trying to avoid console flooding
-      if (err.name === 'NotAllowedError') {
-        setWakeLockSupported(false);
-      }
-    }
-  }, [user]);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      const hidden = document.visibilityState === 'hidden';
-      setIsMinimized(hidden);
-      if (!hidden && user) requestWakeLock();
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [user, requestWakeLock]);
-
-  // --- NOTIFICATION LOGIC ---
+  // Request notification permission
   const requestNotificationPermission = useCallback(async () => {
     if ('Notification' in window) {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
-      if (permission === 'granted') await requestWakeLock();
       return permission;
     }
     return 'denied';
-  }, [requestWakeLock]);
+  }, []);
 
   useEffect(() => {
     if ('Notification' in window) {
@@ -136,37 +72,44 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const sendPushNotification = useCallback((title: string, body: string) => {
-    if (notificationPermission === 'granted' && (document.hidden || isIdle)) {
+  const sendPushNotification = useCallback((title: string, body: string, isCritical = false) => {
+    if (notificationPermission === 'granted' && document.hidden) {
       const n = new Notification(title, {
-        body: body + " - Click to return to Terminal",
+        body,
         silent: !soundEnabled,
-        icon: 'https://cdn-icons-png.flaticon.com/512/2533/2533475.png',
-        tag: 'libra-alert',
-        requireInteraction: true 
+        icon: 'https://cdn-icons-png.flaticon.com/512/2533/2533475.png', // Fallback icon
+        tag: 'libra-alert'
       });
-      n.onclick = () => { window.focus(); n.close(); };
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
     }
-  }, [notificationPermission, soundEnabled, isIdle]);
+  }, [notificationPermission, soundEnabled]);
 
-  const playAlert = useCallback((isCritical = false) => {
+  const playLongBeep = useCallback((isCritical = false) => {
     if (!soundEnabled) return;
     try {
       const ctx = audioCtxRef.current || new (window.AudioContext || (window as any).webkitAudioContext)();
       audioCtxRef.current = ctx;
       if (ctx.state === 'suspended') ctx.resume();
+      
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
+      
       osc.type = isCritical ? 'square' : 'sine';
       osc.frequency.setValueAtTime(isCritical ? 440 : 880, ctx.currentTime);
+      
       gain.gain.setValueAtTime(0, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.05);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
+      gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.05);
+      gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + (isCritical ? 1.2 : 0.7));
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (isCritical ? 1.3 : 0.8));
+      
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
-      osc.stop(ctx.currentTime + 0.8);
-    } catch (e) {}
+      osc.stop(ctx.currentTime + (isCritical ? 1.3 : 0.8));
+    } catch (e) { }
   }, [soundEnabled]);
 
   const sync = useCallback(async (isInitial = false) => {
@@ -178,6 +121,7 @@ const App: React.FC = () => {
       const data = await fetchSheetData();
       if (data) {
         let hasAnyChanges = false;
+        let hasSignalChanges = false;
         let isCriticalAlert = false;
         let alertMessage = "Terminal Update Detected";
         const currentHighlights: GranularHighlights = {};
@@ -190,33 +134,52 @@ const App: React.FC = () => {
             
             if (!old) {
               SIGNAL_KEYS.forEach(k => diff.add(k));
-              alertMessage = `NEW: ${s.instrument} ${s.symbol} ${s.action}`;
+              alertMessage = `NEW SIGNAL: ${s.instrument} ${s.symbol} ${s.action}`;
             } else {
               SIGNAL_KEYS.forEach(k => {
-                if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
+                const newVal = JSON.stringify(s[k]);
+                const oldVal = JSON.stringify(old[k]);
+                if (newVal !== oldVal) {
                   diff.add(k);
-                  if (k === 'status' && s.status === TradeStatus.STOPPED) isCriticalAlert = true;
+                  if (k === 'status') {
+                    alertMessage = `${s.instrument} Status: ${s.status}`;
+                  }
+                  if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) {
+                    diff.add('blast'); 
+                    alertMessage = `${s.instrument} Target ${s.targetsHit} Done!`;
+                  }
+                  if (k === 'status' && s.status === TradeStatus.STOPPED && old.status !== TradeStatus.STOPPED) {
+                    isCriticalAlert = true;
+                    diff.add('blast-red');
+                    alertMessage = `CRITICAL: ${s.instrument} SL HIT!`;
+                  }
                 }
               });
             }
             if (diff.size > 0) { 
               currentHighlights[sid] = diff; 
               hasAnyChanges = true; 
+              hasSignalChanges = true; 
             }
           });
 
           if (hasAnyChanges) {
-            playAlert(isCriticalAlert);
-            sendPushNotification("LibraQuant Alert", alertMessage);
-            setGranularHighlights(currentHighlights);
+            playLongBeep(isCriticalAlert);
+            sendPushNotification("LibraQuant Alert", alertMessage, isCriticalAlert);
+            
             if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+            setGranularHighlights(currentHighlights);
             highlightTimeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
-            setPage('dashboard');
+
+            if (hasSignalChanges) setPage('dashboard');
           }
         }
 
-        setLastSyncTime(new Date().toLocaleTimeString('en-IN', { hour12: false }));
+        const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLastSyncTime(nowStr);
         prevSignalsRef.current = [...data.signals];
+        prevWatchRef.current = [...data.watchlist];
+        
         setSignals([...data.signals]);
         setWatchlist([...data.watchlist]);
         setUsers([...data.users]);
@@ -227,12 +190,13 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playAlert, sendPushNotification]);
+  }, [playLongBeep, sendPushNotification]);
 
   const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', updatedSignal, updatedSignal.id);
     if (success) {
       setSignals(prev => prev.map(s => s.id === updatedSignal.id ? updatedSignal : s));
+      setPage('dashboard');
       prevSignalsRef.current = prevSignalsRef.current.map(s => s.id === updatedSignal.id ? updatedSignal : s);
     }
     return success;
@@ -241,99 +205,109 @@ const App: React.FC = () => {
   useEffect(() => {
     sync(true);
     const timer = setInterval(() => sync(false), POLL_INTERVAL);
-    if (user) requestWakeLock();
-    return () => clearInterval(timer);
-  }, [sync, user, requestWakeLock]);
+    return () => {
+      clearInterval(timer);
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, [sync]);
 
   const toggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
     localStorage.setItem('libra_sound_enabled', String(next));
     if (next) {
-      playAlert();
-      requestNotificationPermission();
+      playLongBeep();
+      requestNotificationPermission(); // Ask for notification permission on user gesture
     }
+  };
+
+  const logout = () => {
+    localStorage.removeItem(SESSION_KEY);
+    setUser(null);
   };
 
   if (!user) return <Login onLogin={(u) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ user: u, timestamp: Date.now() }));
     setUser(u);
+    requestNotificationPermission(); // Request on login gesture
     sync(true);
   }} />;
 
-  const showStandby = isMinimized || isIdle;
-
   return (
-    <Layout user={user} onLogout={() => { setUser(null); localStorage.removeItem(SESSION_KEY); }} currentPage={page} onNavigate={setPage}>
-      {/* --- STANDBY / MINIMIZED OVERLAY --- */}
-      {showStandby && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
-          <div className="relative mb-8">
-            <div className="absolute inset-0 bg-blue-500/20 rounded-full blur-3xl animate-pulse"></div>
-            <div className="relative p-6 bg-slate-900 border border-slate-800 rounded-full shadow-2xl">
-              {isMinimized ? <Moon size={48} className="text-blue-500 animate-bounce" /> : <MousePointer2 size={48} className="text-emerald-500 animate-pulse" />}
-            </div>
-          </div>
-          <h2 className="text-3xl font-black text-white uppercase tracking-tighter mb-2">
-            {isMinimized ? 'System Minimized' : 'Standby Mode'}
-          </h2>
-          <p className="text-slate-400 max-w-xs text-sm font-mono uppercase tracking-widest leading-relaxed">
-            Live sync active. Background workers monitoring market {POLL_INTERVAL/1000}s. 
-            <br/><span className="text-blue-400">Click to resume dashboard.</span>
-          </p>
-          <div className="mt-8 flex items-center space-x-3 bg-slate-900/50 border border-slate-800 px-4 py-2 rounded-full">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></div>
-            <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Live Sync: {lastSyncTime}</span>
-          </div>
-          <button onClick={() => { setIsIdle(false); setIsMinimized(false); }} className="absolute inset-0 w-full h-full cursor-pointer" aria-label="Resume"></button>
-        </div>
-      )}
-
-      {/* --- UI CONTROLS --- */}
+    <Layout user={user} onLogout={logout} currentPage={page} onNavigate={setPage}>
       <div className="fixed top-4 right-4 z-[60] flex flex-col items-end space-y-3">
-        <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all flex items-center ${connectionStatus === 'error' ? 'border-rose-500' : 'border-slate-800'}`}>
+        <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">
-              <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">Server Status</span>
+              <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">
+                {connectionStatus === 'error' ? 'Auto Reconnect' : 'Server Status'}
+              </span>
               <div className="flex items-center">
-                 <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${connectionStatus === 'syncing' ? 'bg-blue-400 animate-pulse' : connectionStatus === 'error' ? 'bg-rose-500' : 'bg-emerald-500'}`}></div>
-                 <span className="text-white font-mono">{lastSyncTime}</span>
+                 <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${connectionStatus === 'syncing' ? 'bg-blue-400 animate-pulse' : connectionStatus === 'error' ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'}`}></div>
+                 <span className={`${connectionStatus === 'error' ? 'text-rose-400' : 'text-white'} font-mono`}>{lastSyncTime}</span>
               </div>
           </div>
-          <button onClick={() => sync(false)} className="p-1.5 rounded-lg text-slate-500 hover:text-white">
-             <RefreshCw size={14} className={connectionStatus === 'syncing' ? 'animate-spin' : ''} />
+          <button 
+            onClick={() => sync(false)} 
+            disabled={connectionStatus === 'syncing'}
+            className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}
+          >
+             {connectionStatus === 'error' ? <WifiOff size={14} /> : <RefreshCw size={14} className={connectionStatus === 'syncing' ? 'animate-spin' : ''} />}
           </button>
         </div>
 
         <div className="flex flex-col items-end space-y-2">
-          {wakeLockActive && (
-            <div className="bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-lg flex items-center text-emerald-400 text-[9px] font-black uppercase tracking-widest shadow-lg">
-                <Zap size={12} className="mr-2 animate-pulse" />
-                Standby Prevented
-            </div>
-          )}
-          {!wakeLockActive && wakeLockSupported && (
-            <button onClick={requestWakeLock} className="bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center text-slate-400 text-[9px] font-bold hover:text-white transition-all">
-              <MonitorPlay size={12} className="mr-2" />
-              Request Wake Lock
-            </button>
-          )}
           {notificationPermission !== 'granted' && (
-             <button onClick={requestNotificationPermission} className="px-3 py-1.5 bg-blue-600 text-white text-[10px] font-bold rounded-lg shadow-xl flex items-center">
+             <button 
+              onClick={requestNotificationPermission}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg shadow-xl animate-bounce flex items-center"
+             >
                 <BellRing size={12} className="mr-2" />
-                Enable Alerts
+                Enable Desktop Alerts
              </button>
           )}
-          <button onClick={toggleSound} className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
+          <button 
+            onClick={toggleSound} 
+            className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
+            title="Toggle Alert Sounds"
+          >
             {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
           </button>
         </div>
       </div>
 
+      {connectionStatus === 'error' && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-rose-600 text-white px-4 py-2 rounded-full text-xs font-bold shadow-2xl flex items-center animate-bounce">
+            <ShieldAlert size={14} className="mr-2" />
+            Network Unstable - Retrying Connection...
+        </div>
+      )}
+      
       {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
       {page === 'booked' && <BookedTrades signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
       {page === 'stats' && <Stats signals={signals} />}
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} onNavigate={setPage} />}
+
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
+        <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>
+          <div className={`${page === 'dashboard' ? 'bg-blue-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.2)]' : ''}`}>
+            <Radio size={page === 'dashboard' ? 24 : 20} strokeWidth={page === 'dashboard' ? 3 : 2} />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-tighter">Live</span>
+        </button>
+        <button onClick={() => setPage('booked')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'booked' ? 'text-emerald-500' : 'text-slate-500'}`}>
+          <div className={`${page === 'booked' ? 'bg-emerald-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.2)]' : ''}`}>
+            <CheckCircle size={page === 'booked' ? 24 : 20} strokeWidth={page === 'booked' ? 3 : 2} />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-tighter">History</span>
+        </button>
+        <button onClick={() => setPage('stats')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'stats' ? 'text-yellow-500' : 'text-slate-500'}`}>
+          <div className={`${page === 'stats' ? 'bg-yellow-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(234,179,8,0.2)]' : ''}`}>
+            <BarChart2 size={page === 'stats' ? 24 : 20} strokeWidth={page === 'stats' ? 3 : 2} />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-tighter">Stats</span>
+        </button>
+      </div>
     </Layout>
   );
 };
