@@ -10,9 +10,8 @@ import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, BellRing } from 'lucide-react';
 
-// Extended to 8 hours to satisfy "minimum 7 hours" requirement
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
@@ -29,12 +28,10 @@ const WATCH_KEYS: Array<keyof WatchlistItem> = ['symbol', 'price', 'change', 'la
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
-    // Initial mount check: ensures session persists across refresh/reopen
     const saved = localStorage.getItem(SESSION_KEY);
     if (saved) {
       try {
         const { user, timestamp } = JSON.parse(saved);
-        // Check if current time is within the allowed window
         if (Date.now() - timestamp < SESSION_DURATION_MS) return user;
       } catch (e) { 
         localStorage.removeItem(SESSION_KEY); 
@@ -50,6 +47,7 @@ const App: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
@@ -57,6 +55,37 @@ const App: React.FC = () => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
+
+  // Request notification permission
+  const requestNotificationPermission = useCallback(async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      return permission;
+    }
+    return 'denied';
+  }, []);
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
+  const sendPushNotification = useCallback((title: string, body: string, isCritical = false) => {
+    if (notificationPermission === 'granted' && document.hidden) {
+      const n = new Notification(title, {
+        body,
+        silent: !soundEnabled,
+        icon: 'https://cdn-icons-png.flaticon.com/512/2533/2533475.png', // Fallback icon
+        tag: 'libra-alert'
+      });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    }
+  }, [notificationPermission, soundEnabled]);
 
   const playLongBeep = useCallback((isCritical = false) => {
     if (!soundEnabled) return;
@@ -94,6 +123,7 @@ const App: React.FC = () => {
         let hasAnyChanges = false;
         let hasSignalChanges = false;
         let isCriticalAlert = false;
+        let alertMessage = "Terminal Update Detected";
         const currentHighlights: GranularHighlights = {};
 
         if (!isInitial && prevSignalsRef.current.length > 0) {
@@ -104,16 +134,24 @@ const App: React.FC = () => {
             
             if (!old) {
               SIGNAL_KEYS.forEach(k => diff.add(k));
+              alertMessage = `NEW SIGNAL: ${s.instrument} ${s.symbol} ${s.action}`;
             } else {
               SIGNAL_KEYS.forEach(k => {
                 const newVal = JSON.stringify(s[k]);
                 const oldVal = JSON.stringify(old[k]);
                 if (newVal !== oldVal) {
                   diff.add(k);
-                  if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) diff.add('blast'); 
+                  if (k === 'status') {
+                    alertMessage = `${s.instrument} Status: ${s.status}`;
+                  }
+                  if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) {
+                    diff.add('blast'); 
+                    alertMessage = `${s.instrument} Target ${s.targetsHit} Done!`;
+                  }
                   if (k === 'status' && s.status === TradeStatus.STOPPED && old.status !== TradeStatus.STOPPED) {
                     isCriticalAlert = true;
                     diff.add('blast-red');
+                    alertMessage = `CRITICAL: ${s.instrument} SL HIT!`;
                   }
                 }
               });
@@ -125,29 +163,15 @@ const App: React.FC = () => {
             }
           });
 
-          data.watchlist.forEach(w => {
-            const sym = w.symbol;
-            const old = prevWatchRef.current.find(o => o.symbol === sym);
-            const diff = new Set<string>();
-            if (!old) {
-              WATCH_KEYS.forEach(k => diff.add(k));
-            } else {
-              WATCH_KEYS.forEach(k => {
-                if (JSON.stringify((w as any)[k]) !== JSON.stringify((old as any)[k])) diff.add(k);
-              });
-            }
-            if (diff.size > 0) { currentHighlights[sym] = diff; hasAnyChanges = true; }
-          });
-        }
+          if (hasAnyChanges) {
+            playLongBeep(isCriticalAlert);
+            sendPushNotification("LibraQuant Alert", alertMessage, isCriticalAlert);
+            
+            if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+            setGranularHighlights(currentHighlights);
+            highlightTimeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
 
-        if (hasAnyChanges) {
-          playLongBeep(isCriticalAlert);
-          if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-          setGranularHighlights(currentHighlights);
-          highlightTimeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
-
-          if (hasSignalChanges) {
-            setPage('dashboard');
+            if (hasSignalChanges) setPage('dashboard');
           }
         }
 
@@ -166,7 +190,7 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playLongBeep]);
+  }, [playLongBeep, sendPushNotification]);
 
   const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', updatedSignal, updatedSignal.id);
@@ -191,7 +215,10 @@ const App: React.FC = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
     localStorage.setItem('libra_sound_enabled', String(next));
-    if (next) playLongBeep();
+    if (next) {
+      playLongBeep();
+      requestNotificationPermission(); // Ask for notification permission on user gesture
+    }
   };
 
   const logout = () => {
@@ -200,9 +227,9 @@ const App: React.FC = () => {
   };
 
   if (!user) return <Login onLogin={(u) => {
-    // Store user with current timestamp to support 8-hour persistent session
     localStorage.setItem(SESSION_KEY, JSON.stringify({ user: u, timestamp: Date.now() }));
     setUser(u);
+    requestNotificationPermission(); // Request on login gesture
     sync(true);
   }} />;
 
@@ -228,13 +255,24 @@ const App: React.FC = () => {
           </button>
         </div>
 
-        <button 
-          onClick={toggleSound} 
-          className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
-          title="Toggle Alert Sounds"
-        >
-          {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
-        </button>
+        <div className="flex flex-col items-end space-y-2">
+          {notificationPermission !== 'granted' && (
+             <button 
+              onClick={requestNotificationPermission}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg shadow-xl animate-bounce flex items-center"
+             >
+                <BellRing size={12} className="mr-2" />
+                Enable Desktop Alerts
+             </button>
+          )}
+          <button 
+            onClick={toggleSound} 
+            className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
+            title="Toggle Alert Sounds"
+          >
+            {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
+          </button>
+        </div>
       </div>
 
       {connectionStatus === 'error' && (
