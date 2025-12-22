@@ -18,29 +18,42 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
   granularHighlights,
   onSignalUpdate
 }) => {
-  // Helper to get IST Date String for comparison
+  // Helper to get IST Date String with robustness against invalid dates
   const getISTDateKey = (date: Date) => {
-    return new Intl.DateTimeFormat('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).format(date);
+    if (!date || isNaN(date.getTime())) return 'INVALID';
+    try {
+      return new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(date);
+    } catch (e) {
+      return 'INVALID';
+    }
   };
 
   const bookedSignals = useMemo(() => {
     const todayIST = getISTDateKey(new Date());
 
-    return signals.filter(signal => {
+    return (signals || []).filter(signal => {
       const status = signal.status;
       const isBooked = status === TradeStatus.EXITED || status === TradeStatus.STOPPED || status === TradeStatus.ALL_TARGET;
       
       if (!isBooked) return false;
 
-      // Filter by today's date in IST
-      const signalDateIST = getISTDateKey(new Date(signal.timestamp));
+      // Use lastTradedTimestamp for history accuracy, falling back to original timestamp
+      const ts = signal.lastTradedTimestamp || signal.timestamp;
+      if (!ts) return false;
+
+      const dateObj = new Date(ts);
+      const signalDateIST = getISTDateKey(dateObj);
       return signalDateIST === todayIST;
-    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    }).sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
+      return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+    });
   }, [signals]);
 
   const stats = useMemo(() => {

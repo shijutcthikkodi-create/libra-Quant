@@ -9,27 +9,34 @@ interface StatsProps {
 }
 
 const Stats: React.FC<StatsProps> = ({ signals = [] }) => {
-  // Helper to get IST components
+  // Helper to get IST components with robustness
   const getISTDetails = (date: Date) => {
-    const formatter = new Intl.DateTimeFormat('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
-    const parts = formatter.formatToParts(date);
-    const day = parts.find(p => p.type === 'day')?.value;
-    const month = parts.find(p => p.type === 'month')?.value;
-    const year = parts.find(p => p.type === 'year')?.value;
-    const dateKey = `${year}-${month}-${day}`;
-    return { dateKey, month, year };
+    if (!date || isNaN(date.getTime())) {
+      return { dateKey: 'INVALID', month: '00', year: '0000' };
+    }
+    try {
+      const formatter = new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+      const parts = formatter.formatToParts(date);
+      const day = parts.find(p => p.type === 'day')?.value;
+      const month = parts.find(p => p.type === 'month')?.value;
+      const year = parts.find(p => p.type === 'year')?.value;
+      const dateKey = `${year}-${month}-${day}`;
+      return { dateKey, month, year };
+    } catch (e) {
+      return { dateKey: 'INVALID', month: '00', year: '0000' };
+    }
   };
 
   const performance = useMemo(() => {
     const now = new Date();
     const { dateKey: todayKey, month: currentMonth, year: currentYear } = getISTDetails(now);
 
-    const closedTrades = signals.filter(s => 
+    const closedTrades = (signals || []).filter(s => 
       s.status === TradeStatus.EXITED || s.status === TradeStatus.STOPPED || s.status === TradeStatus.ALL_TARGET
     );
 
@@ -38,28 +45,28 @@ const Stats: React.FC<StatsProps> = ({ signals = [] }) => {
     let totalPoints = 0;
     let wins = 0;
 
-    // Grouping for chart (last 7 days)
     const dailyMap: Record<string, number> = {};
-    
-    // Initialize last 7 days in dailyMap
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const { dateKey } = getISTDetails(d);
-      dailyMap[dateKey] = 0;
+      if (dateKey !== 'INVALID') {
+        dailyMap[dateKey] = 0;
+      }
     }
 
     closedTrades.forEach(trade => {
-      // BTST LOGIC: Use lastTradedTimestamp (the close time) for grouping performance
-      // If lastTradedTimestamp isn't available, fall back to timestamp
       const closeDateStr = trade.lastTradedTimestamp || trade.timestamp;
+      if (!closeDateStr) return;
+      
       const closeDate = new Date(closeDateStr);
       const { dateKey, month, year } = getISTDetails(closeDate);
+
+      if (dateKey === 'INVALID') return;
 
       const pnl = trade.pnlRupees || 0;
       const pts = trade.pnlPoints || 0;
 
-      // Cumulative Stats
       totalPoints += pts;
       if (pts > 0) wins++;
 
@@ -72,7 +79,7 @@ const Stats: React.FC<StatsProps> = ({ signals = [] }) => {
     });
 
     const chartData = Object.entries(dailyMap).map(([date, value]) => ({
-      date: date.split('-').slice(1).reverse().join('/'),
+      date: date === 'INVALID' ? '--' : date.split('-').slice(1).reverse().join('/'),
       pnl: value
     }));
 
@@ -110,7 +117,6 @@ const Stats: React.FC<StatsProps> = ({ signals = [] }) => {
           <Calendar size={16} className="mr-2 text-blue-500" />
           7-Day P&L Distribution
         </h3>
-        {/* Fixed height and min-height for ResponsiveContainer parent to solve sizing warnings */}
         <div className="h-72 w-full min-h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={performance.chartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>

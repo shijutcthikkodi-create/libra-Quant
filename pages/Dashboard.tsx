@@ -22,21 +22,46 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const GRACE_PERIOD_MS = 60 * 1000;
 
+  // Helper to get IST Date Key consistently
+  const getISTDateKey = (date: Date) => {
+    if (!date || isNaN(date.getTime())) return 'INVALID';
+    try {
+      return new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).format(date);
+    } catch (e) {
+      return 'INVALID';
+    }
+  };
+
   const liveSignals = useMemo(() => {
-    const now = Date.now();
+    const now = new Date();
+    const todayIST = getISTDateKey(now);
+
     return (signals || []).filter(signal => {
       const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
+
+      // 1. CARRY FORWARD: If the trade is still ACTIVE or PARTIAL, always show it
+      // regardless of when it was created.
       if (isLive) return true;
 
-      // Ghosting logic
+      // 2. SESSION CLEANING: If the trade is closed, check when it was closed.
       const closeTimeStr = signal.lastTradedTimestamp || signal.timestamp;
-      if (!closeTimeStr) return false;
+      const closeDateObj = new Date(closeTimeStr);
+      
+      if (isNaN(closeDateObj.getTime())) return false;
 
-      const dateObj = new Date(closeTimeStr);
-      if (isNaN(dateObj.getTime())) return false;
+      // Closed trades only stay on dashboard if:
+      // a) They were closed on the CURRENT IST day
+      // b) They are within the 60-second grace (ghosting) period
+      const signalCloseDateIST = getISTDateKey(closeDateObj);
+      const isClosedToday = signalCloseDateIST === todayIST;
+      const isRecentlyClosed = (now.getTime() - closeDateObj.getTime()) < GRACE_PERIOD_MS;
 
-      const isRecentlyClosed = (now - dateObj.getTime()) < GRACE_PERIOD_MS;
-      return isRecentlyClosed;
+      return isClosedToday && isRecentlyClosed;
     });
   }, [signals]);
 
@@ -137,7 +162,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex-1 order-2 lg:order-1">
               {sortedSignals.length === 0 ? (
                   <div className="text-center py-20 bg-slate-900 border border-slate-800 rounded-xl">
-                      <p className="text-slate-500 font-medium">No active signals at the moment.</p>
+                      <p className="text-slate-500 font-medium">No active signals for this session.</p>
                       <p className="text-[10px] text-slate-600 mt-2 uppercase tracking-widest">Scanning Market...</p>
                   </div>
               ) : (

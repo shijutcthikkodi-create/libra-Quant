@@ -12,7 +12,8 @@ import { fetchSheetData, updateSheetData } from './services/googleSheetsService'
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
 import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff } from 'lucide-react';
 
-const SESSION_DURATION_MS = 6.5 * 60 * 60 * 1000;
+// Extended to 8 hours to satisfy "minimum 7 hours" requirement
+const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
 const HIGHLIGHT_DURATION = 15000;
@@ -28,12 +29,16 @@ const WATCH_KEYS: Array<keyof WatchlistItem> = ['symbol', 'price', 'change', 'la
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
+    // Initial mount check: ensures session persists across refresh/reopen
     const saved = localStorage.getItem(SESSION_KEY);
     if (saved) {
       try {
         const { user, timestamp } = JSON.parse(saved);
+        // Check if current time is within the allowed window
         if (Date.now() - timestamp < SESSION_DURATION_MS) return user;
-      } catch (e) { localStorage.removeItem(SESSION_KEY); }
+      } catch (e) { 
+        localStorage.removeItem(SESSION_KEY); 
+      }
     }
     return null;
   });
@@ -163,13 +168,11 @@ const App: React.FC = () => {
     }
   }, [playLongBeep]);
 
-  // Global callback for signal updates (used by Card or Admin Panel)
   const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', updatedSignal, updatedSignal.id);
     if (success) {
       setSignals(prev => prev.map(s => s.id === updatedSignal.id ? updatedSignal : s));
       setPage('dashboard');
-      // Update ref to prevent sync duplication
       prevSignalsRef.current = prevSignalsRef.current.map(s => s.id === updatedSignal.id ? updatedSignal : s);
     }
     return success;
@@ -191,15 +194,20 @@ const App: React.FC = () => {
     if (next) playLongBeep();
   };
 
+  const logout = () => {
+    localStorage.removeItem(SESSION_KEY);
+    setUser(null);
+  };
+
   if (!user) return <Login onLogin={(u) => {
+    // Store user with current timestamp to support 8-hour persistent session
     localStorage.setItem(SESSION_KEY, JSON.stringify({ user: u, timestamp: Date.now() }));
     setUser(u);
     sync(true);
   }} />;
 
   return (
-    <Layout user={user} onLogout={() => setUser(null)} currentPage={page} onNavigate={setPage}>
-      {/* Global Controls */}
+    <Layout user={user} onLogout={logout} currentPage={page} onNavigate={setPage}>
       <div className="fixed top-4 right-4 z-[60] flex flex-col items-end space-y-3">
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">
@@ -242,7 +250,6 @@ const App: React.FC = () => {
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} onNavigate={setPage} />}
 
-      {/* MOBILE BOTTOM NAVIGATION BAR */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>
           <div className={`${page === 'dashboard' ? 'bg-blue-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.2)]' : ''}`}>

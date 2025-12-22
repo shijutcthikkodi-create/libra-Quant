@@ -47,24 +47,15 @@ const getVal = (obj: any, targetKey: string): any => {
   return undefined;
 };
 
-/**
- * Robust status normalizer that handles numbers (like 3) and various string inputs.
- */
 const normalizeStatus = (val: any): TradeStatus => {
   if (val === undefined || val === null || val === '') return TradeStatus.ACTIVE;
-  
-  // Safely convert to string and normalize
   const s = String(val).toUpperCase().trim();
-  
-  // Custom mapping: If user types "3" or "ALL TARGET" in sheet, mark as closed/completed
   if (s === '3' || s.includes('ALL TARGET')) return TradeStatus.ALL_TARGET;
-  
   if (s.includes('ACTIVE') || s.includes('LIVE')) return TradeStatus.ACTIVE;
   if (s.includes('PARTIAL') || s.includes('BOOKED')) return TradeStatus.PARTIAL;
   if (s.includes('STOP') || s.includes('SL HIT') || s.includes('LOSS') || s.includes('STOPPED')) return TradeStatus.STOPPED;
   if (s.includes('EXIT') || s.includes('CLOSE') || s.includes('SQUARE')) return TradeStatus.EXITED;
-  
-  return TradeStatus.ACTIVE; // Default fallback
+  return TradeStatus.ACTIVE;
 };
 
 export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => {
@@ -84,7 +75,6 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
     });
     
     clearTimeout(timeoutId);
-    
     if (!response.ok) throw new Error(`HTTP_${response.status}`);
 
     const rawText = await response.text();
@@ -97,13 +87,11 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         const instrument = String(getVal(s, 'instrument') || '').trim();
         const symbol = String(getVal(s, 'symbol') || '').trim();
 
-        // If either instrument or symbol is empty, we treat this row as "cleaned" or "empty"
+        // Critical Check: If the primary identifier columns are empty, the row is effectively deleted.
         if (!instrument || !symbol) return null;
 
-        // Robust Target Parsing
         const rawTargets = getVal(s, 'targets');
         let parsedTargets: number[] = [];
-        
         if (typeof rawTargets === 'string' && rawTargets.trim() !== '') {
           parsedTargets = rawTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
         } else if (Array.isArray(rawTargets)) {
@@ -112,7 +100,6 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
           parsedTargets = [rawTargets];
         }
         
-        // Fallback: Check for Target 1, Target 2, Target 3 as separate columns
         if (parsedTargets.length === 0) {
           [1, 2, 3].forEach(i => {
             const val = parseFloat(getVal(s, `target${i}`));
@@ -120,8 +107,6 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
           });
         }
 
-        const rawStatus = getVal(s, 'status');
-        
         return {
           ...s,
           id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
@@ -133,7 +118,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
           targets: parsedTargets,
           targetsHit: Number(getVal(s, 'targetsHit') || 0), 
           action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
-          status: normalizeStatus(rawStatus),
+          status: normalizeStatus(getVal(s, 'status')),
           pnlPoints: Number(getVal(s, 'pnlPoints') || 0),
           pnlRupees: getVal(s, 'pnlRupees') !== undefined ? Number(getVal(s, 'pnlRupees')) : undefined,
           trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
@@ -142,13 +127,12 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
           lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null
         };
       })
-      .filter((s: any) => s !== null); // Remove null entries (cleared rows)
+      .filter((s: any) => s !== null);
 
     const formattedWatch = (data.watchlist || [])
       .map((w: any) => {
         const symbol = String(getVal(w, 'symbol') || '').trim();
         if (!symbol) return null;
-
         return {
           ...w,
           symbol,
@@ -178,8 +162,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (retries > 0) { 
-        const delay = (3 - retries) * 3000;
-        await new Promise(res => setTimeout(res, delay)); 
+        await new Promise(res => setTimeout(res, (3 - retries) * 3000)); 
         return fetchSheetData(retries - 1); 
     }
     throw error;
