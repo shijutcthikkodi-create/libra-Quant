@@ -10,7 +10,7 @@ import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, BellRing } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, BellRing, MonitorPlay } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
@@ -23,8 +23,6 @@ const SIGNAL_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
   'stopLoss', 'targets', 'trailingSL', 'status', 'pnlPoints', 'pnlRupees', 'comment', 'targetsHit'
 ];
-
-const WATCH_KEYS: Array<keyof WatchlistItem> = ['symbol', 'price', 'change', 'lastUpdated'];
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
@@ -49,22 +47,50 @@ const App: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
+  const [wakeLockActive, setWakeLockActive] = useState(false);
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
-  const prevWatchRef = useRef<WatchlistItem[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
+  const wakeLockRef = useRef<any>(null);
 
-  // Request notification permission
+  // --- WAKE LOCK LOGIC (Prevents Standby) ---
+  const requestWakeLock = useCallback(async () => {
+    if ('wakeLock' in navigator && user) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        setWakeLockActive(true);
+        wakeLockRef.current.addEventListener('release', () => {
+          setWakeLockActive(false);
+        });
+      } catch (err) {
+        console.warn('Wake Lock failed:', err);
+      }
+    }
+  }, [user]);
+
+  // Re-request wake lock when app becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (wakeLockRef.current !== null && document.visibilityState === 'visible') {
+        await requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [requestWakeLock]);
+
+  // --- NOTIFICATION LOGIC ---
   const requestNotificationPermission = useCallback(async () => {
     if ('Notification' in window) {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
+      if (permission === 'granted') await requestWakeLock();
       return permission;
     }
     return 'denied';
-  }, []);
+  }, [requestWakeLock]);
 
   useEffect(() => {
     if ('Notification' in window) {
@@ -73,15 +99,18 @@ const App: React.FC = () => {
   }, []);
 
   const sendPushNotification = useCallback((title: string, body: string, isCritical = false) => {
-    if (notificationPermission === 'granted' && document.hidden) {
+    if (notificationPermission === 'granted') {
       const n = new Notification(title, {
-        body,
+        body: body + " - Click to open terminal",
         silent: !soundEnabled,
-        icon: 'https://cdn-icons-png.flaticon.com/512/2533/2533475.png', // Fallback icon
-        tag: 'libra-alert'
+        icon: 'https://cdn-icons-png.flaticon.com/512/2533/2533475.png',
+        tag: 'libra-alert',
+        requireInteraction: true // Keeps notification visible until user acts
       });
+      
       n.onclick = () => {
         window.focus();
+        if (window.parent) window.parent.focus();
         n.close();
       };
     }
@@ -178,8 +207,6 @@ const App: React.FC = () => {
         const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(nowStr);
         prevSignalsRef.current = [...data.signals];
-        prevWatchRef.current = [...data.watchlist];
-        
         setSignals([...data.signals]);
         setWatchlist([...data.watchlist]);
         setUsers([...data.users]);
@@ -205,11 +232,13 @@ const App: React.FC = () => {
   useEffect(() => {
     sync(true);
     const timer = setInterval(() => sync(false), POLL_INTERVAL);
-    return () => {
-      clearInterval(timer);
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-    };
+    return () => clearInterval(timer);
   }, [sync]);
+
+  // Initial wake lock on mount if logged in
+  useEffect(() => {
+    if (user) requestWakeLock();
+  }, [user, requestWakeLock]);
 
   const toggleSound = () => {
     const next = !soundEnabled;
@@ -217,19 +246,20 @@ const App: React.FC = () => {
     localStorage.setItem('libra_sound_enabled', String(next));
     if (next) {
       playLongBeep();
-      requestNotificationPermission(); // Ask for notification permission on user gesture
+      requestNotificationPermission();
     }
   };
 
   const logout = () => {
     localStorage.removeItem(SESSION_KEY);
+    if (wakeLockRef.current) wakeLockRef.current.release();
     setUser(null);
   };
 
   if (!user) return <Login onLogin={(u) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ user: u, timestamp: Date.now() }));
     setUser(u);
-    requestNotificationPermission(); // Request on login gesture
+    requestNotificationPermission();
     sync(true);
   }} />;
 
@@ -246,30 +276,25 @@ const App: React.FC = () => {
                  <span className={`${connectionStatus === 'error' ? 'text-rose-400' : 'text-white'} font-mono`}>{lastSyncTime}</span>
               </div>
           </div>
-          <button 
-            onClick={() => sync(false)} 
-            disabled={connectionStatus === 'syncing'}
-            className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}
-          >
-             {connectionStatus === 'error' ? <WifiOff size={14} /> : <RefreshCw size={14} className={connectionStatus === 'syncing' ? 'animate-spin' : ''} />}
+          <button onClick={() => sync(false)} disabled={connectionStatus === 'syncing'} className="p-1.5 rounded-lg text-slate-500 hover:text-white">
+             {connectionStatus === 'syncing' ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           </button>
         </div>
 
         <div className="flex flex-col items-end space-y-2">
+          {wakeLockActive && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-lg flex items-center text-emerald-400 text-[9px] font-black uppercase tracking-widest shadow-lg">
+                <MonitorPlay size={12} className="mr-2 animate-pulse" />
+                Standby Prevented
+            </div>
+          )}
           {notificationPermission !== 'granted' && (
-             <button 
-              onClick={requestNotificationPermission}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg shadow-xl animate-bounce flex items-center"
-             >
+             <button onClick={requestNotificationPermission} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold rounded-lg shadow-xl animate-bounce flex items-center">
                 <BellRing size={12} className="mr-2" />
                 Enable Desktop Alerts
              </button>
           )}
-          <button 
-            onClick={toggleSound} 
-            className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
-            title="Toggle Alert Sounds"
-          >
+          <button onClick={toggleSound} className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
             {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
           </button>
         </div>
@@ -287,27 +312,6 @@ const App: React.FC = () => {
       {page === 'stats' && <Stats signals={signals} />}
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} onNavigate={setPage} />}
-
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
-        <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>
-          <div className={`${page === 'dashboard' ? 'bg-blue-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.2)]' : ''}`}>
-            <Radio size={page === 'dashboard' ? 24 : 20} strokeWidth={page === 'dashboard' ? 3 : 2} />
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-tighter">Live</span>
-        </button>
-        <button onClick={() => setPage('booked')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'booked' ? 'text-emerald-500' : 'text-slate-500'}`}>
-          <div className={`${page === 'booked' ? 'bg-emerald-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.2)]' : ''}`}>
-            <CheckCircle size={page === 'booked' ? 24 : 20} strokeWidth={page === 'booked' ? 3 : 2} />
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-tighter">History</span>
-        </button>
-        <button onClick={() => setPage('stats')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'stats' ? 'text-yellow-500' : 'text-slate-500'}`}>
-          <div className={`${page === 'stats' ? 'bg-yellow-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(234,179,8,0.2)]' : ''}`}>
-            <BarChart2 size={page === 'stats' ? 24 : 20} strokeWidth={page === 'stats' ? 3 : 2} />
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-tighter">Stats</span>
-        </button>
-      </div>
     </Layout>
   );
 };
