@@ -27,7 +27,7 @@ export interface TradeSignal {
   entryPrice: number;
   stopLoss: number;
   targets: number[];
-  targetsHit?: number; // 0, 1, 2, or 3
+  targetsHit?: number; 
   trailingSL?: number | null;
   status: TradeStatus;
   timestamp: string;
@@ -35,6 +35,10 @@ export interface TradeSignal {
   pnlPoints?: number;
   pnlRupees?: number;
   comment?: string;
+  // New Institutional Fields
+  quantity?: number;
+  cmp?: number;
+  isBTST?: boolean;
 }
 
 export interface User {

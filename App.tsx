@@ -22,7 +22,8 @@ export type GranularHighlights = Record<string, Set<string>>;
 
 const SIGNAL_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
-  'stopLoss', 'targets', 'trailingSL', 'status', 'pnlPoints', 'pnlRupees', 'comment', 'targetsHit'
+  'stopLoss', 'targets', 'trailingSL', 'status', 'pnlPoints', 'pnlRupees', 'comment', 'targetsHit',
+  'quantity', 'cmp', 'isBTST'
 ];
 
 const WATCH_KEYS: Array<keyof WatchlistItem> = ['symbol', 'price', 'change', 'lastUpdated'];
@@ -141,6 +142,7 @@ const App: React.FC = () => {
         }
 
         if (hasAnyChanges) {
+          // Play sound for signal updates or watchlist updates
           playLongBeep(isCriticalAlert);
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           setGranularHighlights(currentHighlights);

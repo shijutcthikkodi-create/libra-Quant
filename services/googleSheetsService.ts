@@ -87,7 +87,6 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         const instrument = String(getVal(s, 'instrument') || '').trim();
         const symbol = String(getVal(s, 'symbol') || '').trim();
 
-        // Critical Check: If the primary identifier columns are empty, the row is effectively deleted.
         if (!instrument || !symbol) return null;
 
         const rawTargets = getVal(s, 'targets');
@@ -107,6 +106,8 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
           });
         }
 
+        const btstVal = String(getVal(s, 'btst') || '').toUpperCase();
+
         return {
           ...s,
           id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
@@ -124,7 +125,11 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
           trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
           comment: String(getVal(s, 'comment') || ''),
           timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
-          lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null
+          lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null,
+          // New Institutional Fields from Columns Q, R, S
+          quantity: Number(getVal(s, 'quantity') || 0),
+          cmp: Number(getVal(s, 'cmp') || 0),
+          isBTST: btstVal === 'TRUE' || btstVal === 'YES' || btstVal === 'BTST'
         };
       })
       .filter((s: any) => s !== null);
