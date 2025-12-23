@@ -1,7 +1,7 @@
 
 import React, { useMemo, useEffect, useRef } from 'react';
 import SignalCard from '../components/SignalCard';
-import { Bell, List, Clock, Zap, Activity } from 'lucide-react';
+import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp } from 'lucide-react';
 import { WatchlistItem, TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
@@ -112,11 +112,22 @@ const Dashboard: React.FC<DashboardProps> = ({
           <p className="text-slate-400 text-sm">Real-time institutional options desk.</p>
         </div>
         
-        <div className="mt-4 md:mt-0 flex items-center space-x-3">
+        <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
             <div className="hidden sm:flex items-center px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-[10px] font-bold text-slate-500">
               <Clock size={12} className="mr-1.5 text-blue-500" />
               IST Today: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
             </div>
+            
+            <a 
+              href="https://oa.mynt.in/?ref=ZTN348" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-lg transition-all text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-900/20"
+            >
+                <TrendingUp size={16} className="mr-2" />
+                Open Demat
+            </a>
+
             <button className="flex items-center px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700 transition-colors text-sm font-medium">
                 <Bell size={18} className="mr-2 text-yellow-500" />
                 Alerts

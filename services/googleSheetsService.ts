@@ -1,10 +1,11 @@
-
 import { TradeSignal, WatchlistItem, User, TradeStatus } from '../types';
 
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyFbphSzUzTcjwiqGs3EdCcg2y67fOhmvuq65cXLSvaUJXFRDyrMTJkm6OdrVNPMk_A/exec';
+// Updated URL for user's specific Google Apps Script deployment
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx1foRQ4bUbGKW160-QI8eKK5TXusla8ztcL_pd7eFcOFlas_M-uXrbQ7XQWDMcZH0p/exec';
 
 export interface SheetData {
   signals: (TradeSignal & { sheetIndex: number })[];
+  history: TradeSignal[];
   watchlist: WatchlistItem[];
   users: User[];
 }
@@ -58,6 +59,54 @@ const normalizeStatus = (val: any): TradeStatus => {
   return TradeStatus.ACTIVE;
 };
 
+const parseSignalRow = (s: any, index: number): TradeSignal | null => {
+  const instrument = String(getVal(s, 'instrument') || '').trim();
+  const symbol = String(getVal(s, 'symbol') || '').trim();
+
+  if (!instrument || !symbol) return null;
+
+  const rawTargets = getVal(s, 'targets');
+  let parsedTargets: number[] = [];
+  if (typeof rawTargets === 'string' && rawTargets.trim() !== '') {
+    parsedTargets = rawTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
+  } else if (Array.isArray(rawTargets)) {
+    parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
+  } else if (typeof rawTargets === 'number' && !isNaN(rawTargets)) {
+    parsedTargets = [rawTargets];
+  }
+  
+  if (parsedTargets.length === 0) {
+    [1, 2, 3].forEach(i => {
+      const val = parseFloat(getVal(s, `target${i}`));
+      if (!isNaN(val) && val !== 0) parsedTargets.push(val);
+    });
+  }
+
+  const btstVal = String(getVal(s, 'btst') || '').toUpperCase();
+
+  return {
+    ...s,
+    id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
+    instrument,
+    symbol,
+    entryPrice: Number(getVal(s, 'entryPrice') || 0),
+    stopLoss: Number(getVal(s, 'stopLoss') || 0),
+    targets: parsedTargets,
+    targetsHit: Number(getVal(s, 'targetsHit') || 0), 
+    action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
+    status: normalizeStatus(getVal(s, 'status')),
+    pnlPoints: Number(getVal(s, 'pnlPoints') || 0),
+    pnlRupees: getVal(s, 'pnlRupees') !== undefined ? Number(getVal(s, 'pnlRupees')) : undefined,
+    trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
+    comment: String(getVal(s, 'comment') || ''),
+    timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
+    lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null,
+    quantity: Number(getVal(s, 'quantity') || 0),
+    cmp: Number(getVal(s, 'cmp') || 0),
+    isBTST: btstVal === 'TRUE' || btstVal === 'YES' || btstVal === 'BTST'
+  };
+};
+
 export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => {
   if (!SCRIPT_URL) return null;
   
@@ -83,55 +132,11 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
     const data = robustParseJson(rawText);
     
     const formattedSignals = (data.signals || [])
-      .map((s: any, index: number) => {
-        const instrument = String(getVal(s, 'instrument') || '').trim();
-        const symbol = String(getVal(s, 'symbol') || '').trim();
+      .map((s: any, index: number) => ({ ...parseSignalRow(s, index), sheetIndex: index }))
+      .filter((s: any) => s !== null);
 
-        if (!instrument || !symbol) return null;
-
-        const rawTargets = getVal(s, 'targets');
-        let parsedTargets: number[] = [];
-        if (typeof rawTargets === 'string' && rawTargets.trim() !== '') {
-          parsedTargets = rawTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
-        } else if (Array.isArray(rawTargets)) {
-          parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
-        } else if (typeof rawTargets === 'number' && !isNaN(rawTargets)) {
-          parsedTargets = [rawTargets];
-        }
-        
-        if (parsedTargets.length === 0) {
-          [1, 2, 3].forEach(i => {
-            const val = parseFloat(getVal(s, `target${i}`));
-            if (!isNaN(val) && val !== 0) parsedTargets.push(val);
-          });
-        }
-
-        const btstVal = String(getVal(s, 'btst') || '').toUpperCase();
-
-        return {
-          ...s,
-          id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
-          sheetIndex: index,
-          instrument,
-          symbol,
-          entryPrice: Number(getVal(s, 'entryPrice') || 0),
-          stopLoss: Number(getVal(s, 'stopLoss') || 0),
-          targets: parsedTargets,
-          targetsHit: Number(getVal(s, 'targetsHit') || 0), 
-          action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
-          status: normalizeStatus(getVal(s, 'status')),
-          pnlPoints: Number(getVal(s, 'pnlPoints') || 0),
-          pnlRupees: getVal(s, 'pnlRupees') !== undefined ? Number(getVal(s, 'pnlRupees')) : undefined,
-          trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
-          comment: String(getVal(s, 'comment') || ''),
-          timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
-          lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null,
-          // New Institutional Fields from Columns Q, R, S
-          quantity: Number(getVal(s, 'quantity') || 0),
-          cmp: Number(getVal(s, 'cmp') || 0),
-          isBTST: btstVal === 'TRUE' || btstVal === 'YES' || btstVal === 'BTST'
-        };
-      })
+    const formattedHistory = (data.history || [])
+      .map((s: any, index: number) => parseSignalRow(s, index))
       .filter((s: any) => s !== null);
 
     const formattedWatch = (data.watchlist || [])
@@ -163,7 +168,12 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
       };
     });
 
-    return { signals: formattedSignals, watchlist: formattedWatch, users: formattedUsers };
+    return { 
+      signals: formattedSignals as (TradeSignal & { sheetIndex: number })[], 
+      history: formattedHistory as TradeSignal[],
+      watchlist: formattedWatch, 
+      users: formattedUsers 
+    };
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (retries > 0) { 

@@ -47,6 +47,7 @@ const App: React.FC = () => {
   const [page, setPage] = useState('dashboard');
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(MOCK_WATCHLIST);
   const [signals, setSignals] = useState<TradeSignal[]>(MOCK_SIGNALS);
+  const [historySignals, setHistorySignals] = useState<TradeSignal[]>([]); // New Vault State
   const [users, setUsers] = useState<User[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
@@ -142,7 +143,6 @@ const App: React.FC = () => {
         }
 
         if (hasAnyChanges) {
-          // Play sound for signal updates or watchlist updates
           playLongBeep(isCriticalAlert);
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           setGranularHighlights(currentHighlights);
@@ -159,6 +159,7 @@ const App: React.FC = () => {
         prevWatchRef.current = [...data.watchlist];
         
         setSignals([...data.signals]);
+        setHistorySignals([...(data.history || [])]);
         setWatchlist([...data.watchlist]);
         setUsers([...data.users]);
         setConnectionStatus('connected');
@@ -202,7 +203,6 @@ const App: React.FC = () => {
   };
 
   if (!user) return <Login onLogin={(u) => {
-    // Store user with current timestamp to support 8-hour persistent session
     localStorage.setItem(SESSION_KEY, JSON.stringify({ user: u, timestamp: Date.now() }));
     setUser(u);
     sync(true);
@@ -247,8 +247,8 @@ const App: React.FC = () => {
       )}
       
       {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
-      {page === 'booked' && <BookedTrades signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
-      {page === 'stats' && <Stats signals={signals} />}
+      {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
+      {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} onNavigate={setPage} />}
 

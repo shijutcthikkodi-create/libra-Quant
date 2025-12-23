@@ -7,6 +7,7 @@ import { GranularHighlights } from '../App';
 
 interface BookedTradesProps {
   signals: (TradeSignal & { sheetIndex?: number })[];
+  historySignals?: TradeSignal[];
   user: User;
   granularHighlights: GranularHighlights;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
@@ -14,6 +15,7 @@ interface BookedTradesProps {
 
 const BookedTrades: React.FC<BookedTradesProps> = ({ 
   signals, 
+  historySignals = [],
   user, 
   granularHighlights,
   onSignalUpdate
@@ -35,8 +37,17 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
 
   const bookedSignals = useMemo(() => {
     const todayIST = getISTDateKey(new Date());
+    
+    // Combine current and historical signals to find all trades closed TODAY
+    const combinedData = [...signals, ...historySignals];
+    const seenIds = new Set();
+    const uniqueTrades = combinedData.filter(item => {
+      const duplicate = seenIds.has(item.id);
+      seenIds.add(item.id);
+      return !duplicate;
+    });
 
-    return (signals || []).filter(signal => {
+    return uniqueTrades.filter(signal => {
       const status = signal.status;
       const isBooked = status === TradeStatus.EXITED || status === TradeStatus.STOPPED || status === TradeStatus.ALL_TARGET;
       
@@ -53,7 +64,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       const timeB = new Date(b.timestamp).getTime();
       return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
     });
-  }, [signals]);
+  }, [signals, historySignals]);
 
   const stats = useMemo(() => {
     let indexIntraday = 0;

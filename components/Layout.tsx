@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff } from 'lucide-react';
+import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff, ExternalLink, TrendingUp } from 'lucide-react';
 import { User } from '../types';
 import { SEBI_DISCLAIMER, FOOTER_TEXT, BRANDING_TEXT } from '../constants';
 
@@ -132,12 +132,30 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
           </div>
         </div>
 
-        <nav className="flex-1 px-4">
+        <nav className="flex-1 px-4 overflow-y-auto">
           <NavItem page="dashboard" icon={Radio} label="Live Signals" />
           <NavItem page="booked" icon={CheckCircle} label="Booked Trades" />
           <NavItem page="stats" icon={BarChart2} label="P&L Analytics" />
           <NavItem page="rules" icon={ShieldAlert} label="Rules & Disclaimer" />
           {user?.isAdmin && <NavItem page="admin" icon={FileText} label="Admin Panel" />}
+          
+          {/* Institutional Demat CTA */}
+          <div className="mt-6 px-2">
+            <a 
+              href="https://oa.mynt.in/?ref=ZTN348" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="group relative flex flex-col items-center justify-center p-4 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 transition-all hover:border-amber-500/50 hover:shadow-[0_0_20px_rgba(245,158,11,0.15)]"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500 mb-2 group-hover:scale-110 transition-transform">
+                <TrendingUp size={18} />
+              </div>
+              <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.2em] text-center">Open Demat A/C</p>
+              <p className="text-[8px] text-slate-500 font-bold uppercase mt-1 text-center">Zero AMC * Partners</p>
+              <ExternalLink size={10} className="absolute top-2 right-2 text-slate-700 group-hover:text-amber-500" />
+            </a>
+          </div>
         </nav>
 
         <div className="p-4 border-t border-slate-800">
