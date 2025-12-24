@@ -22,46 +22,41 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const GRACE_PERIOD_MS = 60 * 1000;
 
-  // Helper to get IST Date Key consistently
-  const getISTDateKey = (date: Date) => {
-    if (!date || isNaN(date.getTime())) return 'INVALID';
-    try {
-      return new Intl.DateTimeFormat('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).format(date);
-    } catch (e) {
-      return 'INVALID';
-    }
+  // Helper to check if a date is Today or Yesterday in IST
+  const isTodayOrYesterdayIST = (date: Date) => {
+    if (!date || isNaN(date.getTime())) return false;
+    const now = new Date();
+    const fmt = (d: Date) => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+    
+    const todayStr = fmt(now);
+    const targetStr = fmt(date);
+    
+    if (todayStr === targetStr) return true;
+    
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const yesterdayStr = fmt(yesterday);
+    
+    return targetStr === yesterdayStr;
   };
 
   const liveSignals = useMemo(() => {
     const now = new Date();
-    const todayIST = getISTDateKey(now);
 
     return (signals || []).filter(signal => {
-      const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
+      const signalDate = new Date(signal.timestamp);
+      const isRecent = isTodayOrYesterdayIST(signalDate);
 
-      // 1. CARRY FORWARD: If the trade is still ACTIVE or PARTIAL, always show it
-      // regardless of when it was created.
+      // Strictly only show Today and Yesterday
+      if (!isRecent) return false;
+
+      const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
       if (isLive) return true;
 
-      // 2. SESSION CLEANING: If the trade is closed, check when it was closed.
+      // For closed trades, also check the grace period
       const closeTimeStr = signal.lastTradedTimestamp || signal.timestamp;
       const closeDateObj = new Date(closeTimeStr);
-      
-      if (isNaN(closeDateObj.getTime())) return false;
-
-      // Closed trades only stay on dashboard if:
-      // a) They were closed on the CURRENT IST day
-      // b) They are within the 60-second grace (ghosting) period
-      const signalCloseDateIST = getISTDateKey(closeDateObj);
-      const isClosedToday = signalCloseDateIST === todayIST;
-      const isRecentlyClosed = (now.getTime() - closeDateObj.getTime()) < GRACE_PERIOD_MS;
-
-      return isClosedToday && isRecentlyClosed;
+      return (now.getTime() - closeDateObj.getTime()) < GRACE_PERIOD_MS;
     });
   }, [signals]);
 
@@ -79,7 +74,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const latestSignal = sortedSignals[0];
   const lastScrolledId = useRef<string | null>(null);
 
-  // Auto-scroll to the updated card
   useEffect(() => {
     const updatedIds = Object.keys(granularHighlights).filter(id => 
       liveSignals.some(s => s.id === id)
@@ -98,7 +92,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   }, [granularHighlights, liveSignals]);
 
-  // Check if latestSignal is actually active for the banner
   const isBannerActive = latestSignal && (latestSignal.status === TradeStatus.ACTIVE || latestSignal.status === TradeStatus.PARTIAL);
 
   return (
@@ -109,11 +102,11 @@ const Dashboard: React.FC<DashboardProps> = ({
             <Activity size={24} className="mr-2 text-emerald-500" />
             Live Trading Floor
           </h2>
-          <p className="text-slate-400 text-sm">Real-time institutional options desk.</p>
+          <p className="text-slate-400 text-sm font-mono uppercase tracking-tighter">Strict 48H Institutional Window</p>
         </div>
         
         <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
-            <div className="hidden sm:flex items-center px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-[10px] font-bold text-slate-500">
+            <div className="flex items-center px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-[10px] font-bold text-slate-500">
               <Clock size={12} className="mr-1.5 text-blue-500" />
               IST Today: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
             </div>
@@ -172,9 +165,10 @@ const Dashboard: React.FC<DashboardProps> = ({
       <div className="flex flex-col lg:flex-row gap-6">
           <div className="flex-1 order-2 lg:order-1">
               {sortedSignals.length === 0 ? (
-                  <div className="text-center py-20 bg-slate-900 border border-slate-800 rounded-xl">
-                      <p className="text-slate-500 font-medium">No active signals for this session.</p>
-                      <p className="text-[10px] text-slate-600 mt-2 uppercase tracking-widest">Scanning Market...</p>
+                  <div className="text-center py-20 bg-slate-900/50 border border-dashed border-slate-800 rounded-3xl">
+                      <Zap size={40} className="mx-auto text-slate-800 mb-4" />
+                      <p className="text-slate-500 font-bold uppercase tracking-widest text-sm italic">No activity in last 48 hours</p>
+                      <p className="text-[10px] text-slate-700 mt-2 uppercase tracking-widest font-mono">Terminal Standby • Monitoring Markets</p>
                   </div>
               ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

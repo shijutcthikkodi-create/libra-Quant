@@ -1,7 +1,7 @@
 
 import React, { useMemo } from 'react';
 import SignalCard from '../components/SignalCard';
-import { CheckCircle, Calendar, Clock, Briefcase, Zap, BarChart3, PieChart, Activity, TrendingUp, Landmark, LineChart } from 'lucide-react';
+import { CheckCircle, Calendar, Clock, Briefcase, Zap, BarChart3, PieChart, Activity, TrendingUp, Landmark, LineChart, ChevronRight } from 'lucide-react';
 import { TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
@@ -20,26 +20,30 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
   granularHighlights,
   onSignalUpdate
 }) => {
-  // Helper to get IST Date String with robustness against invalid dates
-  const getISTDateKey = (date: Date) => {
-    if (!date || isNaN(date.getTime())) return 'INVALID';
-    try {
-      return new Intl.DateTimeFormat('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).format(date);
-    } catch (e) {
-      return 'INVALID';
-    }
+  // Helper to get IST Date String for grouping
+  const getISTDateDisplay = (date: Date) => {
+    if (!date || isNaN(date.getTime())) return 'UNKNOWN DATE';
+    const now = new Date();
+    
+    // Formatting for comparison
+    const fmt = (d: Date) => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+    
+    const todayStr = fmt(now);
+    const targetStr = fmt(date);
+    
+    if (todayStr === targetStr) return 'TODAY';
+    
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const yesterdayStr = fmt(yesterday);
+    if (targetStr === yesterdayStr) return 'YESTERDAY';
+
+    return null; // Signals outside today/yesterday return null
   };
 
-  const bookedSignals = useMemo(() => {
-    const todayIST = getISTDateKey(new Date());
-    
-    // Combine current and historical signals to find all trades closed TODAY
+  const { groupedSignals, stats } = useMemo(() => {
     const combinedData = [...signals, ...historySignals];
+    
     const seenIds = new Set();
     const uniqueTrades = combinedData.filter(item => {
       const duplicate = seenIds.has(item.id);
@@ -47,38 +51,38 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       return !duplicate;
     });
 
-    return uniqueTrades.filter(signal => {
+    // Filter only CLOSED trades within strict Today/Yesterday window
+    const booked = uniqueTrades.filter(signal => {
       const status = signal.status;
-      const isBooked = status === TradeStatus.EXITED || status === TradeStatus.STOPPED || status === TradeStatus.ALL_TARGET;
-      
-      if (!isBooked) return false;
+      const isClosed = status === TradeStatus.EXITED || status === TradeStatus.STOPPED || status === TradeStatus.ALL_TARGET;
+      if (!isClosed) return false;
 
-      const ts = signal.lastTradedTimestamp || signal.timestamp;
-      if (!ts) return false;
-
-      const dateObj = new Date(ts);
-      const signalDateIST = getISTDateKey(dateObj);
-      return signalDateIST === todayIST;
+      const ts = new Date(signal.lastTradedTimestamp || signal.timestamp);
+      return getISTDateDisplay(ts) !== null;
     }).sort((a, b) => {
-      const timeA = new Date(a.timestamp).getTime();
-      const timeB = new Date(b.timestamp).getTime();
+      const timeA = new Date(a.lastTradedTimestamp || a.timestamp).getTime();
+      const timeB = new Date(b.lastTradedTimestamp || b.timestamp).getTime();
       return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
     });
-  }, [signals, historySignals]);
 
-  const stats = useMemo(() => {
+    const groups: Record<string, TradeSignal[]> = {};
+    let totalNet = 0;
     let indexIntraday = 0;
     let stockIntraday = 0;
     let indexBTST = 0;
     let stockBTST = 0;
-    let totalNet = 0;
-
     const indices = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'];
 
-    bookedSignals.forEach(s => {
+    booked.forEach(s => {
+      const ts = s.lastTradedTimestamp || s.timestamp;
+      const dateKey = getISTDateDisplay(new Date(ts));
+      if (!dateKey) return; // Skip any nulls just in case
+
+      if (!groups[dateKey]) groups[dateKey] = [];
+      groups[dateKey].push(s);
+
       const pnl = (s.pnlRupees || 0);
       totalNet += pnl;
-      
       const inst = (s.instrument || '').toUpperCase();
       const isIndex = indices.some(idx => inst.includes(idx));
 
@@ -91,8 +95,11 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       }
     });
 
-    return { indexIntraday, stockIntraday, indexBTST, stockBTST, totalNet };
-  }, [bookedSignals]);
+    return { 
+      groupedSignals: groups, 
+      stats: { indexIntraday, stockIntraday, indexBTST, stockBTST, totalNet } 
+    };
+  }, [signals, historySignals]);
 
   const StatBox = ({ label, value, icon: Icon, iconColor, subtext }: any) => (
     <div className="flex flex-col flex-1 p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-lg transition-all hover:border-slate-700 hover:shadow-blue-500/5">
@@ -109,6 +116,8 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     </div>
   );
 
+  const groupKeys = Object.keys(groupedSignals);
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-8">
@@ -124,9 +133,9 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
                 <div className="flex items-center space-x-2 mt-1">
                    <div className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-400 uppercase tracking-tighter flex items-center">
                       <Clock size={10} className="mr-1" />
-                      Live Feed
+                      Strict 48H
                    </div>
-                   <span className="text-slate-500 text-[9px] font-bold uppercase tracking-widest">Today's Performance</span>
+                   <span className="text-slate-500 text-[9px] font-bold uppercase tracking-widest">Recent Performance</span>
                 </div>
              </div>
           </div>
@@ -135,7 +144,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
             <div className="absolute top-0 right-0 p-2 opacity-5">
               <Landmark size={48} className="text-white" />
             </div>
-            <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Session Total</span>
+            <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Window Net</span>
             <p className={`text-3xl font-mono font-black tracking-tighter ${stats.totalNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
               {stats.totalNet >= 0 ? '+' : ''}₹{stats.totalNet.toLocaleString('en-IN')}
             </p>
@@ -177,30 +186,36 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       </div>
 
       <div className="relative">
-        <div className="flex items-center space-x-3 mb-6">
-           <Activity size={18} className="text-slate-700" />
-           <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em]">Settlement History</h3>
-           <div className="flex-1 h-px bg-slate-800/50"></div>
-        </div>
-
-        {bookedSignals.length === 0 ? (
+        {groupKeys.length === 0 ? (
           <div className="py-32 bg-slate-900/20 border border-dashed border-slate-800/50 rounded-3xl text-center">
             <div className="w-20 h-20 bg-slate-800/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-slate-700/50">
               <Calendar size={40} className="text-slate-800" />
             </div>
-            <p className="text-slate-500 font-black uppercase tracking-[0.3em] text-sm italic">"Markets take time to settle"</p>
-            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Vault empty for {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long' })}</p>
+            <p className="text-slate-500 font-black uppercase tracking-widest text-sm italic">"No recent closures"</p>
+            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Ledger strictly shows last 48 hours only.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {bookedSignals.map((signal) => (
-              <div key={signal.id} className="transition-all duration-300">
-                 <SignalCard 
-                   signal={signal} 
-                   user={user} 
-                   highlights={granularHighlights[signal.id]} 
-                   onSignalUpdate={onSignalUpdate}
-                 />
+          <div className="space-y-10">
+            {groupKeys.map(dateKey => (
+              <div key={dateKey} className="space-y-4">
+                <div className="flex items-center space-x-3">
+                   <div className="px-3 py-1 bg-slate-800 rounded text-[10px] font-black text-slate-300 border border-slate-700 tracking-widest">
+                      {dateKey}
+                   </div>
+                   <div className="flex-1 h-px bg-slate-800/50"></div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {groupedSignals[dateKey].map((signal) => (
+                    <div key={signal.id} className="transition-all duration-300">
+                       <SignalCard 
+                         signal={signal} 
+                         user={user} 
+                         highlights={granularHighlights[signal.id]} 
+                         onSignalUpdate={onSignalUpdate}
+                       />
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>

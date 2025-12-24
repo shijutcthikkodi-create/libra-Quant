@@ -18,7 +18,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   useEffect(() => {
     let storedId = localStorage.getItem('libra_hw_id');
     if (!storedId) {
-        // Generate a more robust persistent browser fingerprint
         const fingerprint = [
             navigator.userAgent.length,
             screen.colorDepth,
@@ -30,7 +29,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             navigator.maxTouchPoints
         ].join('-');
         
-        // Create a unique hash-like ID
         const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
         storedId = `LIBRA-${randomStr}-${fingerprint.slice(0, 10)}`;
         localStorage.setItem('libra_hw_id', storedId);
@@ -49,11 +47,18 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     try {
         const data = await fetchSheetData();
         const users = data?.users || [];
-        const sheetUser = users.find((u: any) => String(u.phoneNumber).trim() === phone.trim());
+        
+        // Normalize input phone to compare only last 10 digits to avoid +91 issues
+        const cleanInputPhone = phone.replace(/\D/g, '').slice(-10);
+
+        const sheetUser = users.find((u: any) => {
+            const cleanSheetPhone = String(u.phoneNumber || '').replace(/\D/g, '').slice(-10);
+            return cleanSheetPhone === cleanInputPhone;
+        });
 
         // 1. Check User Existence
         if (!sheetUser) {
-            setError('Account not registered. Contact Admin for activation.');
+            setError('Account not registered. Please contact Admin with your ID: ' + browserDeviceId.slice(0, 8));
             setLoading(false);
             return;
         }
@@ -77,7 +82,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             if (!isNaN(expiry.getTime())) {
                 expiry.setHours(23, 59, 59, 999);
                 if (new Date() > expiry) {
-                    setError('PASSWORD EXPIRED: Your access period has ended. Contact Admin for a NEW password.');
+                    setError('ACCESS EXPIRED: Your current key has ended. Renew subscription for a NEW key.');
                     setLoading(false);
                     return;
                 }
@@ -85,25 +90,27 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         }
 
         // 4. RIGID DEVICE LOCKING LOGIC
-        // Admins are exempt to allow management from multiple terminals
         if (!sheetUser.isAdmin) {
             const rawId = String(sheetUser.deviceId || '').trim();
-            const savedDeviceId = (rawId && rawId !== "null" && rawId !== "undefined") ? rawId : null;
+            const savedDeviceId = (rawId && rawId !== "" && rawId !== "null" && rawId !== "undefined") ? rawId : null;
             
-            // If device ID exists in database and it DOES NOT match the current browser ID
             if (savedDeviceId && savedDeviceId !== browserDeviceId) {
-                setError('SECURITY VIOLATION: This account is locked to another device. Multi-device login is strictly prohibited.');
+                setError(`SECURITY LOCK: Account active on another terminal. Reset required. Device ID: ${browserDeviceId.slice(0, 8)}`);
                 setLoading(false);
                 return;
             }
             
-            // If no device ID is saved yet (either first login or admin reset), bind this device
             if (!savedDeviceId) {
                 const updatedUser = { ...sheetUser, deviceId: browserDeviceId };
-                const success = await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
-                if (!success) {
-                    console.warn("Could not bind device ID to sheet, proceeding with local bind.");
-                }
+                await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
+                // Also log the binding
+                await updateSheetData('logs', 'ADD', {
+                  timestamp: new Date().toISOString(),
+                  user: sheetUser.name,
+                  action: 'DEVICE_BIND',
+                  details: `Locked to ${browserDeviceId.slice(0, 12)}`,
+                  type: 'SECURITY'
+                });
             }
         }
 
@@ -117,7 +124,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         });
     } catch (err) {
         console.error("Login failure:", err);
-        setError('System Sync Error. Check your internet connection or try again later.');
+        setError('System Sync Error. Check connection or try again.');
     } finally {
         setLoading(false);
     }
@@ -154,7 +161,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 </div>
 
                 <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-widest">30-Day Access Key</label>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-widest">Access Key</label>
                     <div className="relative">
                         <KeyRound className="absolute left-3 top-3.5 text-slate-500" size={16} />
                         <input 
@@ -176,7 +183,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
                 <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-xl shadow-blue-900/20 disabled:opacity-50 flex items-center justify-center text-sm uppercase tracking-widest">
                     {loading ? <Loader2 className="animate-spin mr-2" size={18} /> : null}
-                    {loading ? 'Securing Link...' : 'Sign In To Terminal'}
+                    {loading ? 'Authenticating...' : 'Sign In To Terminal'}
                 </button>
             </form>
 

@@ -1,4 +1,5 @@
-import { TradeSignal, WatchlistItem, User, TradeStatus } from '../types';
+
+import { TradeSignal, WatchlistItem, User, TradeStatus, LogEntry } from '../types';
 
 // Updated URL for user's specific Google Apps Script deployment
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx1foRQ4bUbGKW160-QI8eKK5TXusla8ztcL_pd7eFcOFlas_M-uXrbQ7XQWDMcZH0p/exec';
@@ -8,6 +9,7 @@ export interface SheetData {
   history: TradeSignal[];
   watchlist: WatchlistItem[];
   users: User[];
+  logs: LogEntry[];
 }
 
 const robustParseJson = (text: string) => {
@@ -168,11 +170,20 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
       };
     });
 
+    const formattedLogs = (data.logs || []).map((l: any) => ({
+      timestamp: getVal(l, 'timestamp') || new Date().toISOString(),
+      user: getVal(l, 'user') || 'System',
+      action: getVal(l, 'action') || 'N/A',
+      details: getVal(l, 'details') || '',
+      type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
+    }));
+
     return { 
       signals: formattedSignals as (TradeSignal & { sheetIndex: number })[], 
       history: formattedHistory as TradeSignal[],
       watchlist: formattedWatch, 
-      users: formattedUsers 
+      users: formattedUsers,
+      logs: formattedLogs
     };
   } catch (error: any) {
     clearTimeout(timeoutId);
@@ -184,7 +195,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
   }
 };
 
-export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users', action: 'ADD' | 'UPDATE_SIGNAL' | 'UPDATE_USER' | 'DELETE_USER', payload: any, id?: string) => {
+export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users' | 'logs', action: 'ADD' | 'UPDATE_SIGNAL' | 'UPDATE_USER' | 'DELETE_USER', payload: any, id?: string) => {
   if (!SCRIPT_URL) return false;
   try {
     await fetch(SCRIPT_URL, {

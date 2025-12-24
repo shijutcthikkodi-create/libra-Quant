@@ -7,12 +7,11 @@ import Stats from './pages/Stats';
 import Rules from './pages/Rules';
 import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
-import { User, WatchlistItem, TradeSignal, TradeStatus } from './types';
+import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
 import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff } from 'lucide-react';
 
-// Extended to 8 hours to satisfy "minimum 7 hours" requirement
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
@@ -30,12 +29,10 @@ const WATCH_KEYS: Array<keyof WatchlistItem> = ['symbol', 'price', 'change', 'la
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
-    // Initial mount check: ensures session persists across refresh/reopen
     const saved = localStorage.getItem(SESSION_KEY);
     if (saved) {
       try {
         const { user, timestamp } = JSON.parse(saved);
-        // Check if current time is within the allowed window
         if (Date.now() - timestamp < SESSION_DURATION_MS) return user;
       } catch (e) { 
         localStorage.removeItem(SESSION_KEY); 
@@ -47,8 +44,9 @@ const App: React.FC = () => {
   const [page, setPage] = useState('dashboard');
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(MOCK_WATCHLIST);
   const [signals, setSignals] = useState<TradeSignal[]>(MOCK_SIGNALS);
-  const [historySignals, setHistorySignals] = useState<TradeSignal[]>([]); // New Vault State
+  const [historySignals, setHistorySignals] = useState<TradeSignal[]>([]); 
   const [users, setUsers] = useState<User[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
@@ -162,6 +160,7 @@ const App: React.FC = () => {
         setHistorySignals([...(data.history || [])]);
         setWatchlist([...data.watchlist]);
         setUsers([...data.users]);
+        setLogs([...(data.logs || [])]);
         setConnectionStatus('connected');
       }
     } catch (err: any) {
@@ -250,7 +249,7 @@ const App: React.FC = () => {
       {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
-      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} onNavigate={setPage} />}
+      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} onNavigate={setPage} />}
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>

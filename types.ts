@@ -51,6 +51,14 @@ export interface User {
   deviceId?: string | null;
 }
 
+export interface LogEntry {
+  timestamp: string;
+  user: string;
+  action: string;
+  details: string;
+  type: 'SECURITY' | 'TRADE' | 'USER' | 'SYSTEM';
+}
+
 export interface PnLStats {
   totalTrades: number;
   winRate: number;
