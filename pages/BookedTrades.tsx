@@ -22,7 +22,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
 }) => {
   // Helper to get IST Date String for grouping
   const getISTDateDisplay = (date: Date) => {
-    if (!date || isNaN(date.getTime())) return 'UNKNOWN DATE';
+    if (!date || isNaN(date.getTime())) return null;
     const now = new Date();
     
     // Formatting for comparison
@@ -42,10 +42,13 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
   };
 
   const { groupedSignals, stats } = useMemo(() => {
+    // COMBINE DATA: prioritize 'signals' because it contains the most recent status updates
+    // before the Google Sheet background script moves them to the history tab.
     const combinedData = [...signals, ...historySignals];
     
     const seenIds = new Set();
     const uniqueTrades = combinedData.filter(item => {
+      if (!item.id) return false;
       const duplicate = seenIds.has(item.id);
       seenIds.add(item.id);
       return !duplicate;
@@ -57,6 +60,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       const isClosed = status === TradeStatus.EXITED || status === TradeStatus.STOPPED || status === TradeStatus.ALL_TARGET;
       if (!isClosed) return false;
 
+      // Use the trade completion timestamp if available, else signal timestamp
       const ts = new Date(signal.lastTradedTimestamp || signal.timestamp);
       return getISTDateDisplay(ts) !== null;
     }).sort((a, b) => {
@@ -76,7 +80,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     booked.forEach(s => {
       const ts = s.lastTradedTimestamp || s.timestamp;
       const dateKey = getISTDateDisplay(new Date(ts));
-      if (!dateKey) return; // Skip any nulls just in case
+      if (!dateKey) return; 
 
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(s);

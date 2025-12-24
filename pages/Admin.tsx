@@ -21,16 +21,13 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   const [searchQuery, setSearchQuery] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // --- Client/User State ---
-  // Fix: Added missing state for adding a user
   const [isAddingUser, setIsAddingUser] = useState(false);
 
-  // Fix: Added filteredUsers logic to handle searching through users
   const filteredUsers = useMemo(() => {
-    return users.filter(u => 
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      u.phoneNumber.includes(searchQuery) ||
-      u.id.toLowerCase().includes(searchQuery.toLowerCase())
+    return (users || []).filter(u => 
+      (u.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (u.phoneNumber || '').includes(searchQuery) ||
+      (u.id || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [users, searchQuery]);
 
@@ -47,15 +44,21 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   const [sigIsBtst, setSigIsBtst] = useState(false);
 
   // --- Quick Action Logic ---
+  // CRITICAL: We now add lastTradedTimestamp to ensure the 48h filter captures the update
   const triggerQuickUpdate = async (signal: TradeSignal, updates: Partial<TradeSignal>, actionLabel: string) => {
     setIsSaving(true);
-    const payload = { ...signal, ...updates };
+    const now = new Date().toISOString();
+    const payload = { 
+      ...signal, 
+      ...updates, 
+      lastTradedTimestamp: now // Forces it into the "Recent" window
+    };
+    
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', payload, signal.id);
     if (success) {
       onUpdateSignals(signals.map(s => s.id === signal.id ? (payload as TradeSignal) : s));
-      // Log the action
       await updateSheetData('logs', 'ADD', {
-        timestamp: new Date().toISOString(),
+        timestamp: now,
         user: 'Admin',
         action: 'CALL_UPDATE',
         details: `${actionLabel} on ${signal.instrument} ${signal.symbol}`,
@@ -74,14 +77,9 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
 
     const entry = parseFloat(sigEntry);
     const sl = parseFloat(sigSL);
-    if (isNaN(entry) || isNaN(sl)) {
-      setValidationError("Invalid price values.");
-      return;
-    }
-
     const targets = sigTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
-    setIsSaving(true);
     
+    setIsSaving(true);
     const newSignal: TradeSignal = {
         id: `SIG-${Date.now().toString().slice(-4)}`,
         instrument: sigInstrument,
@@ -104,20 +102,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
       setSigSymbol(''); setSigEntry(''); setSigSL(''); setSigTargets(''); setSigComment('');
       setIsAddingSignal(false);
       onNavigate('dashboard');
-    }
-    setIsSaving(false);
-  };
-
-  const handleUpdatePassword = async (userId: string) => {
-    const user = users.find(u => u.id === userId);
-    if (!user || !tempPassword) return;
-    setIsSaving(true);
-    const updatedUser = { ...user, password: tempPassword, deviceId: "" };
-    const success = await updateSheetData('users', 'UPDATE_USER', updatedUser, userId);
-    if (success) {
-      onUpdateUsers(users.map(u => u.id === userId ? updatedUser : u));
-      setEditingUserPassId(null);
-      setTempPassword('');
     }
     setIsSaving(false);
   };
@@ -152,7 +136,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
 
       {activeTab === 'SIGNALS' && (
           <div className="space-y-6">
-              {/* NEW CALL BROADCASTER */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
                   <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/20">
                       <div className="flex items-center space-x-3">
@@ -219,11 +202,10 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                                   <input type="number" value={sigSL} onChange={e => setSigSL(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs font-mono font-bold text-white outline-none" />
                               </div>
                               <div className="md:col-span-2">
-                                  <label className="block mb-1.5 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Targets (Comma Separated)</label>
+                                  <label className="block mb-1.5 text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">Targets</label>
                                   <input type="text" value={sigTargets} onChange={e => setSigTargets(e.target.value)} placeholder="e.g. 100, 110, 120" className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs font-mono font-bold text-white outline-none" />
                               </div>
                           </div>
-                          
                           <button onClick={handleAddSignal} disabled={isSaving} className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-xl text-xs font-black text-white flex items-center justify-center transition-all shadow-xl shadow-blue-500/20 uppercase tracking-[0.2em]">
                               {isSaving ? <RefreshCw className="animate-spin mr-2" size={16} /> : <Zap className="mr-2" size={16} />}
                               {isSaving ? 'Broadcasting Call...' : 'Confirm & Send Call'}
@@ -231,7 +213,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                       </div>
                   )}
 
-                  {/* ACTIVE CALLS LIVE CONTROL */}
                   <div className="p-5 bg-slate-800/10">
                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4 flex items-center">
                       <Activity size={12} className="mr-2 text-emerald-500" />
@@ -270,7 +251,10 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                                />
                                <QuickActionButton 
                                  label="ALL DONE" 
-                                 onClick={() => triggerQuickUpdate(s, { status: TradeStatus.ALL_TARGET, pnlPoints: (s.targets?.[s.targets.length-1] || 0) - s.entryPrice, comment: "BOOM! All Targets Done. Book Full Profit." }, "ALL_TARGET_HIT")}
+                                 onClick={() => {
+                                   const finalPoints = s.targets && s.targets.length > 0 ? (s.targets[s.targets.length - 1] - s.entryPrice) : 0;
+                                   triggerQuickUpdate(s, { status: TradeStatus.ALL_TARGET, pnlPoints: finalPoints, comment: "BOOM! All Targets Done. Book Full Profit." }, "ALL_TARGET_HIT")
+                                 }}
                                  color="text-emerald-500 border-emerald-500 bg-emerald-500/10"
                                />
                                <QuickActionButton 
@@ -280,12 +264,12 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                                />
                                <QuickActionButton 
                                  label="SL HIT" 
-                                 onClick={() => triggerQuickUpdate(s, { status: TradeStatus.STOPPED, pnlPoints: s.stopLoss - s.entryPrice, comment: "Stop Loss Hit. Discipline is key." }, "SL_HIT")}
+                                 onClick={() => triggerQuickUpdate(s, { status: TradeStatus.STOPPED, pnlPoints: (s.stopLoss - s.entryPrice), comment: "Stop Loss Hit. Discipline is key." }, "SL_HIT")}
                                  color="text-rose-500 border-rose-500/50 bg-rose-500/10"
                                />
                                <QuickActionButton 
                                  label="DELETE" 
-                                 onClick={() => updateSheetData('signals', 'UPDATE_SIGNAL', { ...s, status: TradeStatus.EXITED }, s.id)}
+                                 onClick={() => updateSheetData('signals', 'UPDATE_SIGNAL', { ...s, status: TradeStatus.EXITED, lastTradedTimestamp: new Date().toISOString() }, s.id)}
                                  color="text-slate-600 border-slate-800"
                                />
                             </div>
@@ -396,14 +380,14 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                       </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                      {logs.length > 0 ? [...logs].reverse().map((log, idx) => (
+                      {(logs || []).length > 0 ? [...logs].reverse().map((log, idx) => (
                           <tr key={idx} className="hover:bg-slate-800/5 transition-colors">
                               <td className="p-5 pl-8 font-mono text-[10px] text-slate-400">{new Date(log.timestamp).toLocaleString('en-IN')}</td>
                               <td className="p-5">
                                   <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase tracking-tighter ${
                                       log.type === 'SECURITY' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
                                       log.type === 'TRADE' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                                      'bg-slate-800 text-slate-500 border-slate-700'
+                                      'bg-slate-800 text-slate-400 border-slate-700'
                                   }`}>{log.type}</span>
                               </td>
                               <td className="p-5 text-[11px] text-white font-bold">{log.user}</td>
