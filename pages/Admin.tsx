@@ -4,7 +4,7 @@ import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry } f
 import { 
   Trash2, Edit2, Radio, UserCheck, RefreshCw, Smartphone, Search, 
   History, Zap, Loader2, AlertTriangle, Clock, ShieldCheck, Activity, 
-  Terminal, Download
+  Terminal, Download, LogIn, Users, Monitor
 } from 'lucide-react';
 import { updateSheetData } from '../services/googleSheetsService';
 
@@ -20,10 +20,25 @@ interface AdminProps {
 }
 
 const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, onUpdateSignals, users, onUpdateUsers, logs = [], onNavigate }) => {
-  const [activeTab, setActiveTab] = useState<'SIGNALS' | 'CLIENTS' | 'LOGS'>('SIGNALS');
+  const [activeTab, setActiveTab] = useState<'SIGNALS' | 'CLIENTS' | 'LOGS'>('CLIENTS');
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [logFilter, setLogFilter] = useState<'ALL' | 'SECURITY' | 'TRADE' | 'SYSTEM'>('ALL');
+  const [logFilter, setLogFilter] = useState<'ALL' | 'SECURITY' | 'TRADE' | 'SYSTEM' | 'LOGIN'>('ALL');
+
+  // Derive User Activity from Logs
+  const userActivityMap = useMemo(() => {
+    const map: Record<string, { lastSeen: string; device: string }> = {};
+    [...logs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()).forEach(log => {
+      if (log.action === 'LOGIN_SUCCESS') {
+        // Find the user object by name to map back to ID if possible, or just use name
+        map[log.user] = {
+          lastSeen: log.timestamp,
+          device: log.details.replace('Device: ', '')
+        };
+      }
+    });
+    return map;
+  }, [logs]);
 
   const filteredUsers = useMemo(() => {
     return (users || []).filter(u => 
@@ -34,20 +49,26 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
 
   const filteredLogs = useMemo(() => {
     let base = [...logs];
-    if (logFilter !== 'ALL') {
+    if (logFilter === 'LOGIN') {
+      base = base.filter(l => l.action === 'LOGIN_SUCCESS');
+    } else if (logFilter !== 'ALL') {
       base = base.filter(l => l.type === logFilter);
     }
     return base.reverse();
   }, [logs, logFilter]);
 
-  const logStats = useMemo(() => {
+  const stats = useMemo(() => {
+    const today = new Date().toDateString();
+    const todayLogins = logs.filter(l => l.action === 'LOGIN_SUCCESS' && new Date(l.timestamp).toDateString() === today);
+    const uniqueTerminals = new Set(todayLogins.map(l => l.details)).size;
+
     return {
-      total: logs.length,
-      security: logs.filter(l => l.type === 'SECURITY').length,
-      trade: logs.filter(l => l.type === 'TRADE').length,
-      system: logs.filter(l => l.type === 'SYSTEM').length
+      totalUsers: users.length,
+      todayLogins: todayLogins.length,
+      uniqueTerminals,
+      securityAlerts: logs.filter(l => l.type === 'SECURITY').length
     };
-  }, [logs]);
+  }, [logs, users]);
 
   const getExpiryStatus = (expiryStr: string) => {
     if (!expiryStr) return { label: 'NO EXPIRY', color: 'text-slate-500', bg: 'bg-slate-500/10', border: 'border-slate-800' };
@@ -158,6 +179,112 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
         </div>
       </div>
 
+      {activeTab === 'CLIENTS' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg">
+               <div className="flex items-center justify-between mb-1">
+                 <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">Subscribers</p>
+                 <Users size={12} className="text-blue-500" />
+               </div>
+               <p className="text-2xl font-mono font-black text-white">{stats.totalUsers}</p>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg">
+               <div className="flex items-center justify-between mb-1 text-emerald-500">
+                 <p className="text-[9px] font-black uppercase tracking-widest">Logins Today</p>
+                 <LogIn size={12} />
+               </div>
+               <p className="text-2xl font-mono font-black text-emerald-400">{stats.todayLogins}</p>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg">
+               <div className="flex items-center justify-between mb-1 text-purple-500">
+                 <p className="text-[9px] font-black uppercase tracking-widest">Active Terminals</p>
+                 <Monitor size={12} />
+               </div>
+               <p className="text-2xl font-mono font-black text-purple-400">{stats.uniqueTerminals}</p>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl shadow-lg">
+               <div className="flex items-center justify-between mb-1 text-rose-500">
+                 <p className="text-[9px] font-black uppercase tracking-widest">Sec Alerts</p>
+                 <ShieldCheck size={12} />
+               </div>
+               <p className="text-2xl font-mono font-black text-rose-400">{stats.securityAlerts}</p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+              <div className="p-4 border-b border-slate-800 flex items-center bg-slate-800/10">
+                  <Search className="text-slate-500 mr-3" size={18} />
+                  <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Filter Subscribers by Name or Phone..." className="w-full bg-transparent text-xs text-white outline-none" />
+              </div>
+              <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-950/50 text-slate-500 font-black uppercase text-[9px] tracking-widest border-b border-slate-800">
+                          <tr>
+                              <th className="p-5">Name & Identity</th>
+                              <th className="p-5">Last Active (When/Where)</th>
+                              <th className="p-5">Subscription</th>
+                              <th className="p-5">Binding</th>
+                              <th className="p-5 text-right">Actions</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                          {filteredUsers.map(u => {
+                            const status = getExpiryStatus(u.expiryDate);
+                            const lastActivity = userActivityMap[u.name];
+                            return (
+                              <tr key={u.id} className={`transition-colors ${status.label === 'EXPIRED' ? 'bg-rose-500/5' : ''} hover:bg-slate-800/30`}>
+                                  <td className="p-5">
+                                      <div className="font-bold text-white mb-1 flex items-center">
+                                        {u.name}
+                                        {status.label === 'EXPIRED' && <AlertTriangle size={12} className="ml-2 text-rose-500 animate-pulse" />}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 font-mono uppercase tracking-tighter">{u.phoneNumber}</div>
+                                  </td>
+                                  <td className="p-5">
+                                      {lastActivity ? (
+                                        <div className="space-y-1">
+                                          <div className="flex items-center text-[10px] font-bold text-emerald-400">
+                                            <Clock size={10} className="mr-1.5" />
+                                            {new Date(lastActivity.lastSeen).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                          </div>
+                                          <div className="flex items-center text-[9px] text-slate-500 font-mono uppercase">
+                                            <Terminal size={10} className="mr-1.5" />
+                                            ID: {lastActivity.device}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-700 text-[10px] uppercase font-black">Never Logged In</span>
+                                      )}
+                                  </td>
+                                  <td className="p-5">
+                                      <div className={`inline-flex items-center px-2 py-1 rounded-md text-[9px] font-black border ${status.bg} ${status.color} ${status.border} mb-1.5`}>
+                                        {status.label}
+                                      </div>
+                                      <div className="text-[10px] font-mono text-slate-400">{u.expiryDate || 'PERPETUAL'}</div>
+                                  </td>
+                                  <td className="p-5">
+                                      <div className={`flex items-center text-[10px] font-black uppercase tracking-widest ${u.deviceId ? 'text-blue-500' : 'text-slate-700'}`}>
+                                          <Smartphone size={12} className="mr-2" />
+                                          {u.deviceId ? u.deviceId.slice(0, 10) : 'UNBOUND'}
+                                      </div>
+                                  </td>
+                                  <td className="p-5 text-right">
+                                     <div className="flex items-center justify-end space-x-2">
+                                        <button className="p-2 text-slate-500 hover:text-blue-500 transition-colors"><Edit2 size={16} /></button>
+                                        <button className="p-2 text-slate-500 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
+                                     </div>
+                                  </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'SIGNALS' && (
           <div className="space-y-6">
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
@@ -203,103 +330,22 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
           </div>
       )}
 
-      {activeTab === 'CLIENTS' && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-              <div className="p-4 border-b border-slate-800 flex items-center bg-slate-800/10">
-                  <Search className="text-slate-500 mr-3" size={18} />
-                  <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Filter Subscribers..." className="w-full bg-transparent text-xs text-white outline-none" />
-              </div>
-              <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-950/50 text-slate-500 font-black uppercase text-[9px] tracking-widest border-b border-slate-800">
-                          <tr>
-                              <th className="p-5">Name & Identity</th>
-                              <th className="p-5">Subscription Expiry</th>
-                              <th className="p-5">Terminal Binding</th>
-                              <th className="p-5 text-right">Access Control</th>
-                          </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800">
-                          {filteredUsers.map(u => {
-                            const status = getExpiryStatus(u.expiryDate);
-                            return (
-                              <tr key={u.id} className={`transition-colors ${status.label === 'EXPIRED' ? 'bg-rose-500/5' : ''} hover:bg-slate-800/30`}>
-                                  <td className="p-5">
-                                      <div className="font-bold text-white mb-1 flex items-center">
-                                        {u.name}
-                                        {status.label === 'EXPIRED' && <AlertTriangle size={12} className="ml-2 text-rose-500 animate-pulse" />}
-                                      </div>
-                                      <div className="text-[10px] text-slate-500 font-mono uppercase tracking-tighter">{u.phoneNumber}</div>
-                                  </td>
-                                  <td className="p-5">
-                                      <div className={`inline-flex items-center px-2 py-1 rounded-md text-[9px] font-black border ${status.bg} ${status.color} ${status.border} mb-1.5`}>
-                                        <Clock size={10} className="mr-1.5" />
-                                        {status.label}
-                                      </div>
-                                      <div className="text-[10px] font-mono text-slate-400">{u.expiryDate || 'PERPETUAL'}</div>
-                                  </td>
-                                  <td className="p-5">
-                                      <div className={`flex items-center text-[10px] font-black uppercase tracking-widest ${u.deviceId ? 'text-blue-500' : 'text-slate-700'}`}>
-                                          <Smartphone size={12} className="mr-2" />
-                                          {u.deviceId ? `BOUND: ${u.deviceId.slice(0, 8)}` : 'UNLINKED'}
-                                      </div>
-                                      {u.deviceId && (
-                                          <button onClick={() => updateSheetData('users', 'UPDATE_USER', { ...u, deviceId: "" }, u.id)} className="text-[8px] font-black text-slate-500 hover:text-rose-500 uppercase mt-1 tracking-tighter transition-colors">
-                                              Reset Terminal Lock
-                                          </button>
-                                      )}
-                                  </td>
-                                  <td className="p-5 text-right">
-                                     <div className="flex items-center justify-end space-x-2">
-                                        <button className="p-2 text-slate-500 hover:text-blue-500 transition-colors"><Edit2 size={16} /></button>
-                                        <button className="p-2 text-slate-500 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
-                                     </div>
-                                  </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                  </table>
-              </div>
-          </div>
-      )}
-
       {activeTab === 'LOGS' && (
         <div className="space-y-4">
-           {/* LOG STATS PANEL */}
-           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                 <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest mb-1">Total Events</p>
-                 <p className="text-xl font-mono font-black text-white">{logStats.total}</p>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                 <p className="text-[9px] text-rose-500 font-black uppercase tracking-widest mb-1">Security Alerts</p>
-                 <p className="text-xl font-mono font-black text-rose-400">{logStats.security}</p>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                 <p className="text-[9px] text-blue-500 font-black uppercase tracking-widest mb-1">Trade Actions</p>
-                 <p className="text-xl font-mono font-black text-blue-400">{logStats.trade}</p>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                 <p className="text-[9px] text-emerald-500 font-black uppercase tracking-widest mb-1">System Status</p>
-                 <p className="text-xl font-mono font-black text-emerald-400">{logStats.system}</p>
-              </div>
-           </div>
-
            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
               <div className="p-4 border-b border-slate-800 bg-slate-800/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
                  <div className="flex items-center">
                     <History size={18} className="mr-3 text-purple-500" />
-                    <h3 className="text-xs font-black text-white uppercase tracking-widest">Perfect Audit Trail</h3>
+                    <h3 className="text-xs font-black text-white uppercase tracking-widest">System Audit Trail</h3>
                  </div>
                  <div className="flex items-center space-x-2 overflow-x-auto">
-                    {(['ALL', 'SECURITY', 'TRADE', 'SYSTEM'] as const).map(type => (
+                    {(['ALL', 'LOGIN', 'SECURITY', 'TRADE', 'SYSTEM'] as const).map(type => (
                        <button 
                          key={type}
                          onClick={() => setLogFilter(type)}
                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all border ${logFilter === type ? 'bg-blue-600 text-white border-blue-500' : 'bg-slate-950 text-slate-500 border-slate-800 hover:text-slate-300'}`}
                        >
-                         {type}
+                         {type === 'LOGIN' ? 'Access' : type}
                        </button>
                     ))}
                     <button className="p-2 text-slate-500 hover:text-white"><Download size={14} /></button>
@@ -318,15 +364,15 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                      <tbody className="divide-y divide-slate-800">
                          {filteredLogs.length > 0 ? filteredLogs.map((log, idx) => {
                             const isSecurity = log.type === 'SECURITY';
+                            const isLogin = log.action === 'LOGIN_SUCCESS';
                             const isTrade = log.type === 'TRADE';
-                            const isSystem = log.type === 'SYSTEM';
 
                             return (
-                             <tr key={idx} className={`hover:bg-slate-800/20 transition-colors ${isSecurity ? 'bg-rose-500/5' : ''}`}>
+                             <tr key={idx} className={`hover:bg-slate-800/20 transition-colors ${isSecurity ? 'bg-rose-500/5' : ''} ${isLogin ? 'bg-emerald-500/5' : ''}`}>
                                  <td className="p-4 font-mono text-slate-500 whitespace-nowrap">
                                     <div className="flex items-center space-x-2">
                                        <Clock size={10} />
-                                       <span>{new Date(log.timestamp).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, day: '2-digit', month: 'short' })}</span>
+                                       <span>{new Date(log.timestamp).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: 'short' })}</span>
                                     </div>
                                  </td>
                                  <td className="p-4">
@@ -337,16 +383,17 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                                  </td>
                                  <td className="p-4">
                                    <span className={`px-2 py-0.5 rounded-full text-[8px] font-black border flex items-center w-fit space-x-1.5 ${
+                                     isLogin ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' :
                                      isSecurity ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : 
                                      isTrade ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' :
                                      'bg-slate-800 text-slate-400 border-slate-700'
                                    }`}>
-                                     {isSecurity ? <ShieldCheck size={8} /> : isTrade ? <Activity size={8} /> : <Terminal size={8} />}
+                                     {isLogin ? <LogIn size={8} /> : isSecurity ? <ShieldCheck size={8} /> : isTrade ? <Activity size={8} /> : <Terminal size={8} />}
                                      <span>{log.action}</span>
                                    </span>
                                  </td>
                                  <td className="p-4 pr-6 text-slate-400 font-mono text-[9px] leading-relaxed">
-                                   <div className="bg-slate-950/50 p-2 rounded border border-slate-800/50">
+                                   <div className={`bg-slate-950/50 p-2 rounded border border-slate-800/50 ${isLogin ? 'text-emerald-400/80 border-emerald-500/20' : ''}`}>
                                       {log.details || 'NO_METADATA_AVAILABLE'}
                                    </div>
                                  </td>
