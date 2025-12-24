@@ -49,6 +49,7 @@ const isTrue = (val: any): boolean => {
   if (val === true) return true;
   if (typeof val === 'number') return val === 1;
   const s = String(val || '').toUpperCase().trim();
+  // Expanded to handle "BTST" as a truthy value itself if placed in a boolean column
   return ['TRUE', 'YES', '1', 'Y', 'BTST', 'B.T.S.T', 'OVERNIGHT'].includes(s);
 };
 
@@ -59,15 +60,11 @@ const normalizeStatus = (val: any): TradeStatus => {
   if (s.includes('ACTIVE') || s.includes('LIVE')) return TradeStatus.ACTIVE;
   if (s.includes('PARTIAL') || s.includes('BOOKED')) return TradeStatus.PARTIAL;
   if (s.includes('STOP') || s.includes('SL HIT') || s.includes('LOSS') || s.includes('STOPPED')) return TradeStatus.STOPPED;
-  if (s.includes('EXIT') || s.includes('CLOSE') || s.includes('SQUARE') || s.includes('SQUARED')) return TradeStatus.EXITED;
+  if (s.includes('EXIT') || s.includes('CLOSE') || s.includes('SQUARE')) return TradeStatus.EXITED;
   return TradeStatus.ACTIVE;
 };
 
-/**
- * Parses a row into a TradeSignal.
- * Added 'source' parameter to generate unique IDs and prevent collisions between tabs.
- */
-const parseSignalRow = (s: any, index: number, source: 'LIVE' | 'HIST'): TradeSignal | null => {
+const parseSignalRow = (s: any, index: number): TradeSignal | null => {
   const instrument = String(getVal(s, 'instrument') || '').trim();
   const symbol = String(getVal(s, 'symbol') || '').trim();
   if (!instrument || !symbol) return null;
@@ -87,15 +84,12 @@ const parseSignalRow = (s: any, index: number, source: 'LIVE' | 'HIST'): TradeSi
     });
   }
 
+  // Look for BTST flag in multiple common column naming conventions
   const btstVal = getVal(s, 'isBTST') || getVal(s, 'btst') || getVal(s, 'is_btst') || getVal(s, 'type');
-  
-  // Create a truly unique ID that survives merging history and active signals
-  const baseId = getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `S-${index}`;
-  const uniqueId = `${source}-${baseId}`;
 
   return {
     ...s,
-    id: uniqueId,
+    id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
     instrument,
     symbol,
     entryPrice: getNum(s, 'entryPrice') || 0,
@@ -128,16 +122,29 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
 
     const data = robustParseJson(await response.text());
     
+    const formattedUsers = (data.users || []).map((u: any) => ({
+      ...u,
+      id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || String(getVal(u, 'phoneNumber') || ''),
+      name: String(getVal(u, 'name') || 'Client'),
+      phoneNumber: String(getVal(u, 'phoneNumber') || ''),
+      password: String(getVal(u, 'password') || ''),
+      expiryDate: String(getVal(u, 'expiryDate') || ''),
+      isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
+      deviceId: getVal(u, 'deviceId') ? String(getVal(u, 'deviceId')) : null
+    }));
+
+    const formattedMessages = (data.messages || []).map((m: any) => ({
+      id: String(getVal(m, 'id') || Math.random()),
+      userId: String(getVal(m, 'userId') || getVal(m, 'uid') || '').trim(),
+      senderName: String(getVal(m, 'senderName') || 'Subscriber'),
+      text: String(getVal(m, 'text') || '').trim(),
+      timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
+      isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
+    })).filter((m: any) => m.userId && m.text);
+
     return { 
-      // Mark active signals with LIVE- prefix
-      signals: (data.signals || []).map((s: any, i: number) => {
-        const parsed = parseSignalRow(s, i, 'LIVE');
-        return parsed ? { ...parsed, sheetIndex: i } : null;
-      }).filter((s: any) => s !== null),
-      
-      // Mark history signals with HIST- prefix to prevent ID collision
-      history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i, 'HIST')).filter((s: any) => s !== null),
-      
+      signals: (data.signals || []).map((s: any, i: number) => ({ ...parseSignalRow(s, i), sheetIndex: i })).filter((s: any) => s !== null),
+      history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i)).filter((s: any) => s !== null),
       watchlist: (data.watchlist || []).map((w: any) => ({ 
         ...w, 
         symbol: String(getVal(w, 'symbol') || ''),
@@ -146,18 +153,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         isPositive: getVal(w, 'isPositive') === true || String(getVal(w, 'isPositive')).toLowerCase() === 'true',
         lastUpdated: String(getVal(w, 'lastUpdated') || '')
       })).filter((w: any) => w.symbol),
-      
-      users: (data.users || []).map((u: any) => ({
-        ...u,
-        id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || String(getVal(u, 'phoneNumber') || ''),
-        name: String(getVal(u, 'name') || 'Client'),
-        phoneNumber: String(getVal(u, 'phoneNumber') || ''),
-        password: String(getVal(u, 'password') || ''),
-        expiryDate: String(getVal(u, 'expiryDate') || ''),
-        isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
-        deviceId: getVal(u, 'deviceId') ? String(getVal(u, 'deviceId')) : null
-      })),
-      
+      users: formattedUsers,
       logs: (data.logs || []).map((l: any) => ({
         timestamp: getVal(l, 'timestamp') || new Date().toISOString(),
         user: getVal(l, 'user') || 'System',
@@ -165,15 +161,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         details: getVal(l, 'details') || '',
         type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
       })),
-      
-      messages: (data.messages || []).map((m: any) => ({
-        id: String(getVal(m, 'id') || Math.random()),
-        userId: String(getVal(m, 'userId') || getVal(m, 'uid') || '').trim(),
-        senderName: String(getVal(m, 'senderName') || 'Subscriber'),
-        text: String(getVal(m, 'text') || '').trim(),
-        timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
-        isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
-      })).filter((m: any) => m.userId && m.text)
+      messages: formattedMessages
     };
   } catch (error) {
     if (retries > 0) return fetchSheetData(retries - 1);
@@ -184,13 +172,11 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
 export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users' | 'logs' | 'messages', action: string, payload: any, id?: string) => {
   if (!SCRIPT_URL) return false;
   try {
-    // Strip prefixes before sending update back to sheet
-    const cleanId = id ? id.replace(/^(LIVE|HIST)-/, '') : undefined;
     await fetch(SCRIPT_URL, {
       method: 'POST',
       mode: 'no-cors', 
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ target, action, payload, id: cleanId })
+      body: JSON.stringify({ target, action, payload, id })
     });
     return true;
   } catch (error) { 
