@@ -60,6 +60,7 @@ const App: React.FC = () => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
+  const lastSentMessageIdRef = useRef<string | null>(null);
 
   const playLongBeep = useCallback((isCritical = false) => {
     if (!soundEnabled) return;
@@ -145,6 +146,7 @@ const App: React.FC = () => {
           // Check for new messages
           if (data.messages.length > prevMessagesCountRef.current) {
             const lastMsg = data.messages[data.messages.length - 1];
+            // Only trigger alert if the message is from support (for client) or ANY new message for admin
             if (user?.isAdmin || (lastMsg.userId === user?.id && lastMsg.isAdminReply)) {
                 hasAnyChanges = true;
             }
@@ -173,7 +175,17 @@ const App: React.FC = () => {
         setWatchlist([...data.watchlist]);
         setUsers([...data.users]);
         setLogs([...(data.logs || [])]);
-        setMessages([...data.messages]);
+        
+        // Merge local messages with server messages to avoid flickers
+        setMessages(prev => {
+          const merged = [...data.messages];
+          const lastLocal = prev.find(m => m.id === lastSentMessageIdRef.current);
+          if (lastLocal && !merged.find(m => m.text === lastLocal.text && m.userId === lastLocal.userId)) {
+            merged.push(lastLocal);
+          }
+          return merged;
+        });
+        
         setConnectionStatus('connected');
       }
     } catch (err: any) {
@@ -195,8 +207,10 @@ const App: React.FC = () => {
 
   const handleSendMessage = useCallback(async (text: string, isAdminReply = false, targetUserId?: string) => {
     if (!user) return false;
+    
+    const messageId = Date.now().toString();
     const newMessage: ChatMessage = {
-      id: Date.now().toString(),
+      id: messageId,
       userId: targetUserId || user.id,
       senderName: isAdminReply ? 'Libra Support' : user.name,
       text,
@@ -204,9 +218,13 @@ const App: React.FC = () => {
       isAdminReply
     };
 
+    // Optimistic Update
+    setMessages(prev => [...prev, newMessage]);
+    lastSentMessageIdRef.current = messageId;
+
     const success = await updateSheetData('messages', 'ADD', newMessage);
     if (success) {
-      setMessages(prev => [...prev, newMessage]);
+      // Keep it in local state until next poll replaces it
       prevMessagesCountRef.current += 1;
     }
     return success;

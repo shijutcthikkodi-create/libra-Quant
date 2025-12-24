@@ -19,22 +19,20 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
 
   const isAdmin = user.isAdmin;
 
-  // Determine which user's thread to show
-  // If Client: always show their own thread
-  // If Admin: show selected thread from list
-  const currentChatUserId = isAdmin ? selectedChatUserId : user.id;
+  // Use phone number if ID is missing (common issue if sheet is blank)
+  const effectiveUserId = user.id || user.phoneNumber;
+  const currentChatUserId = isAdmin ? selectedChatUserId : effectiveUserId;
 
   const filteredMessages = useMemo(() => {
     if (!currentChatUserId) return [];
     return messages.filter(m => m.userId === currentChatUserId);
   }, [messages, currentChatUserId]);
 
-  // Admin view: list of users who have sent messages
   const adminThreads = useMemo(() => {
     if (!isAdmin) return [];
     const threadMap = new Map<string, { lastMsg: ChatMessage; user: UserType | undefined }>();
     messages.forEach(m => {
-      const u = users.find(usr => usr.id === m.userId);
+      const u = users.find(usr => usr.id === m.userId || usr.phoneNumber === m.userId);
       if (!threadMap.has(m.userId) || new Date(m.timestamp) > new Date(threadMap.get(m.userId)!.lastMsg.timestamp)) {
         threadMap.set(m.userId, { lastMsg: m, user: u });
       }
@@ -49,7 +47,11 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
   };
 
   useEffect(() => {
-    if (isOpen && currentChatUserId) scrollToBottom();
+    if (isOpen && currentChatUserId) {
+        // Short delay to ensure DOM is ready
+        const timer = setTimeout(scrollToBottom, 50);
+        return () => clearTimeout(timer);
+    }
   }, [filteredMessages, isOpen, currentChatUserId]);
 
   const handleSend = async (e: React.FormEvent) => {
@@ -64,19 +66,19 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
     setIsSending(false);
   };
 
-  const hasNewAdminMessages = useMemo(() => {
-    if (isAdmin) return false; // Handled differently for admin
+  const hasNewSupportMessages = useMemo(() => {
+    if (isAdmin) return false;
     if (filteredMessages.length === 0) return false;
     const last = filteredMessages[filteredMessages.length - 1];
     return last.isAdminReply;
   }, [filteredMessages, isAdmin]);
 
   const chatTitle = isAdmin 
-    ? (selectedChatUserId ? (users.find(u => u.id === selectedChatUserId)?.name || 'Chat') : 'Messages')
+    ? (selectedChatUserId ? (users.find(u => u.id === selectedChatUserId || u.phoneNumber === selectedChatUserId)?.name || 'Chat') : 'Messages')
     : 'Support Desk';
 
   return (
-    <div className="fixed bottom-24 md:bottom-20 right-4 z-[120] flex flex-col items-end">
+    <div className="fixed bottom-24 md:bottom-20 right-4 z-[120] flex flex-col items-end pointer-events-auto">
       {isOpen && (
         <div className="mb-4 w-80 md:w-96 h-[480px] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
           <div className="p-4 bg-slate-800 border-b border-slate-700 flex items-center justify-between">
@@ -97,14 +99,13 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
                 </div>
               </div>
             </div>
-            <button onClick={() => setIsOpen(false)} className="p-1.5 text-slate-500 hover:text-white rounded-lg">
+            <button onClick={() => setIsOpen(false)} className="p-1.5 text-slate-500 hover:text-white rounded-lg transition-colors">
               <X size={20} />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950/30">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950/30 scroll-smooth">
             {isAdmin && !selectedChatUserId ? (
-              /* ADMIN USER LIST VIEW */
               <div className="space-y-2">
                 {adminThreads.length === 0 ? (
                   <div className="h-64 flex flex-col items-center justify-center text-center p-6 opacity-30">
@@ -133,12 +134,11 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
                 )}
               </div>
             ) : (
-              /* CHAT THREAD VIEW */
               <>
                 {filteredMessages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-6">
                     <MessageSquare size={40} className="text-slate-800 mb-3 opacity-20" />
-                    <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest leading-relaxed">
+                    <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest leading-relaxed whitespace-pre-wrap">
                       {isAdmin ? 'Initiate contact with client.' : 'How can we help you today?\nAsk anything about signals.'}
                     </p>
                   </div>
@@ -146,7 +146,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
                   filteredMessages.map((msg, idx) => {
                     const isSelf = isAdmin ? msg.isAdminReply : !msg.isAdminReply;
                     return (
-                      <div key={idx} className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'}`}>
+                      <div key={idx} className={`flex flex-col ${isSelf ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                         <div className={`max-w-[85%] p-3 rounded-2xl text-[11px] leading-relaxed shadow-lg ${
                           isSelf 
                             ? (isAdmin ? 'bg-purple-600 text-white rounded-tr-none shadow-purple-600/10' : 'bg-blue-600 text-white rounded-tr-none shadow-blue-600/10')
@@ -161,25 +161,27 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
                     );
                   })
                 )}
-                <div ref={messagesEndRef} />
+                <div ref={messagesEndRef} className="h-2" />
               </>
             )}
           </div>
 
-          {(currentChatUserId) && (
+          {(currentChatUserId || !isAdmin) && (
             <form onSubmit={handleSend} className="p-4 bg-slate-900 border-t border-slate-800">
               <div className="relative">
                 <input 
                   type="text" 
                   value={inputText}
+                  autoComplete="off"
                   onChange={(e) => setInputText(e.target.value)}
-                  placeholder="Type message..." 
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 pl-4 pr-12 text-xs text-white focus:border-blue-500 outline-none transition-all placeholder:text-slate-700"
+                  placeholder={currentChatUserId ? "Type message..." : "Select a user first..."}
+                  disabled={isAdmin && !currentChatUserId}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 pl-4 pr-12 text-xs text-white focus:border-blue-500 outline-none transition-all placeholder:text-slate-700 disabled:opacity-50"
                 />
                 <button 
                   type="submit" 
-                  disabled={!inputText.trim() || isSending}
-                  className={`absolute right-2 top-2 p-1.5 text-white rounded-lg transition-all ${isAdmin ? 'bg-purple-600 hover:bg-purple-500' : 'bg-blue-600 hover:bg-blue-500'}`}
+                  disabled={!inputText.trim() || isSending || (isAdmin && !currentChatUserId)}
+                  className={`absolute right-2 top-2 p-1.5 text-white rounded-lg transition-all ${isAdmin ? 'bg-purple-600 hover:bg-purple-500' : 'bg-blue-600 hover:bg-blue-500'} disabled:opacity-50 disabled:grayscale`}
                 >
                   {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                 </button>
@@ -191,14 +193,14 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
 
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 border-4 border-slate-950 ${
+        className={`w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 border-4 border-slate-950 relative ${
           isOpen 
             ? 'bg-slate-800 text-white rotate-90 border-slate-700' 
             : (isAdmin ? 'bg-purple-600 text-white shadow-purple-600/30' : 'bg-blue-600 text-white shadow-blue-600/30')
         }`}
       >
         {isOpen ? <X size={24} /> : <MessageSquare size={24} />}
-        {!isOpen && hasNewAdminMessages && (
+        {!isOpen && hasNewSupportMessages && (
            <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 border-2 border-slate-950 rounded-full animate-bounce flex items-center justify-center text-[8px] font-black text-white">!</span>
         )}
       </button>
