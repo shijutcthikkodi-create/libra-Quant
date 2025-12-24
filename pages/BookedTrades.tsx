@@ -115,7 +115,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
         <span className="text-[8px] font-black text-slate-600 px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700/50 uppercase">{subtext}</span>
       </div>
       <p className={`text-xl font-mono font-black tracking-tighter ${value >= 0 ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.3)]'}`}>
-        {value >= 0 ? '+' : ''}₹{value.toLocaleString('en-IN')}
+        {value >= 0 ? '+' : ''}₹{value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </p>
     </div>
   );
@@ -150,7 +150,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
             </div>
             <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Window Net</span>
             <p className={`text-3xl font-mono font-black tracking-tighter ${stats.totalNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {stats.totalNet >= 0 ? '+' : ''}₹{stats.totalNet.toLocaleString('en-IN')}
+              {stats.totalNet >= 0 ? '+' : ''}₹{stats.totalNet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
         </div>

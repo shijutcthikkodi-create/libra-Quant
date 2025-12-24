@@ -18,13 +18,13 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
   
   const [isEditingTrail, setIsEditingTrail] = useState(false);
   const [isSavingTrail, setIsSavingTrail] = useState(false);
-  const [trailValue, setTrailValue] = useState<string>(signal.trailingSL != null ? String(signal.trailingSL) : '');
+  const [trailValue, setTrailValue] = useState<string>(signal.trailingSL != null ? signal.trailingSL.toFixed(2) : '');
   const [displayTrail, setDisplayTrail] = useState<number | null | undefined>(signal.trailingSL);
 
   useEffect(() => {
     if (!isEditingTrail) {
       setDisplayTrail(signal.trailingSL);
-      setTrailValue(signal.trailingSL != null ? String(signal.trailingSL) : '');
+      setTrailValue(signal.trailingSL != null ? signal.trailingSL.toFixed(2) : '');
     }
   }, [signal.trailingSL, isEditingTrail]);
 
@@ -36,10 +36,9 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
   const isTSLHit = isExited && !isAllTarget && (signal.comment?.toUpperCase().includes('TSL') || (signal.status === TradeStatus.EXITED && (signal.pnlPoints || 0) > 0 && signal.comment?.toUpperCase().includes('TRAILING')));
   const canEdit = user.isAdmin && !isExited;
 
-  // Comparison logic for CMP color
-  const cmpProfit = signal.cmp && signal.entryPrice ? 
+  const cmpProfit = signal.cmp !== undefined && signal.entryPrice !== undefined ? 
     (isBuy ? signal.cmp > signal.entryPrice : signal.cmp < signal.entryPrice) : false;
-  const cmpLoss = signal.cmp && signal.entryPrice ? 
+  const cmpLoss = signal.cmp !== undefined && signal.entryPrice !== undefined ? 
     (isBuy ? signal.cmp < signal.entryPrice : signal.cmp > signal.entryPrice) : false;
   
   const getStatusColor = (status: TradeStatus) => {
@@ -194,7 +193,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 flex items-center">
               Entry Price
             </p>
-            <p className={`text-xl font-mono font-bold text-white ${highlights?.has('entryPrice') ? 'animate-blink' : ''}`}>₹{signal.entryPrice}</p>
+            <p className={`text-xl font-mono font-bold text-white ${highlights?.has('entryPrice') ? 'animate-blink' : ''}`}>₹{signal.entryPrice.toFixed(2)}</p>
             {signal.quantity ? (
               <div className="mt-1 flex items-center text-[10px] font-bold text-blue-400 uppercase tracking-tighter">
                 <Briefcase size={10} className="mr-1" /> Size: {signal.quantity}
@@ -205,7 +204,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : 'bg-slate-900'}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Stop Loss</p>
             <p className={`text-xl font-mono font-bold mb-3 ${highlights?.has('stopLoss') || isSLHit ? 'text-rose-500 animate-pulse drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]' : 'text-rose-400'}`}>
-              ₹{signal.stopLoss}
+              ₹{signal.stopLoss.toFixed(2)}
             </p>
             
             <div className="mt-auto pt-2 border-t border-slate-800/80">
@@ -225,7 +224,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                          </div>
                          <div className="flex items-center space-x-2">
                             <span className={`text-xs font-mono font-bold ${isTSLHit ? 'text-rose-500 animate-pulse' : 'text-yellow-500'}`}>
-                              {displayTrail ? `₹${displayTrail}` : '--'}
+                              {displayTrail !== undefined && displayTrail !== null ? `₹${displayTrail.toFixed(2)}` : '--'}
                             </span>
                             {canEdit && <Edit2 size={10} className="text-slate-700" />}
                          </div>
@@ -234,7 +233,6 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             </div>
         </div>
 
-        {/* HIGH-VISIBILITY LIVE CMP SECTION */}
         <div className={`p-4 border-l border-slate-800 transition-all duration-700 ${isActive ? 'bg-slate-900 shadow-inner' : 'bg-slate-900/50'}`}>
             <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center">
@@ -253,9 +251,9 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 cmpLoss ? 'text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.4)]' : 
                 'text-white'
               }`}>
-                ₹{signal.cmp || '--'}
+                ₹{signal.cmp !== undefined ? signal.cmp.toFixed(2) : '0.00'}
               </p>
-              {isActive && signal.cmp && (
+              {isActive && signal.cmp !== undefined && (
                 <div className="flex items-center mt-1 space-x-1">
                    <div className={`h-1 flex-1 rounded-full ${cmpProfit ? 'bg-emerald-500/30' : cmpLoss ? 'bg-rose-500/30' : 'bg-slate-800'}`}>
                       <div className={`h-full rounded-full ${cmpProfit ? 'bg-emerald-500' : cmpLoss ? 'bg-rose-500' : 'bg-slate-600'} transition-all duration-700`} style={{ width: '100%' }}></div>
@@ -283,11 +281,11 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             </div>
             <div className="text-right flex flex-col items-end">
                  <div className={`text-xl font-mono font-bold leading-none ${highlights?.has('pnlPoints') ? 'animate-blink' : ''} ${(signal.pnlPoints || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {(signal.pnlPoints || 0) > 0 ? '+' : ''}{signal.pnlPoints || 0} pts
+                    {(signal.pnlPoints || 0) > 0 ? '+' : ''}{(signal.pnlPoints || 0).toFixed(2)} pts
                  </div>
                  {signal.pnlRupees !== undefined && (
                    <div className={`text-xs font-mono font-bold mt-1 ${highlights?.has('pnlRupees') ? 'animate-blink' : ''} ${(signal.pnlRupees || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {signal.pnlRupees >= 0 ? '+' : ''}₹{signal.pnlRupees.toLocaleString('en-IN')}
+                      {signal.pnlRupees >= 0 ? '+' : ''}₹{signal.pnlRupees.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                    </div>
                  )}
             </div>
@@ -300,7 +298,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 <Target size={14} className="text-blue-500" />
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Targets</span>
             </div>
-            <span className="text-[10px] font-mono text-slate-600 italic">RR 1:{riskReward.toFixed(1)}</span>
+            <span className="text-[10px] font-mono text-slate-600 italic">RR 1:{riskReward.toFixed(2)}</span>
         </div>
         
         <div className="grid grid-cols-3 gap-2">
@@ -310,7 +308,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 return (
                   <div key={idx} className={`rounded px-2 py-2 text-center border transition-all duration-700 ${getTargetStyle(idx)} ${highlights?.has('blast') && isHit ? 'scale-110' : ''}`}>
                       <p className={`text-[10px] font-black uppercase mb-0.5 ${isHit ? 'text-white' : 'text-slate-400'}`}>T{idx + 1}</p>
-                      <p className={`text-sm font-mono font-black ${isHit ? 'animate-pulse' : ''}`}>{t}</p>
+                      <p className={`text-sm font-mono font-black ${isHit ? 'animate-pulse' : ''}`}>{t.toFixed(2)}</p>
                       {isHit && <Check size={10} strokeWidth={3} className="mx-auto mt-1" />}
                   </div>
                 );

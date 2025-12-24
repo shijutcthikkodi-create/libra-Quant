@@ -148,7 +148,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </span>
                 </div>
                 <h3 className="text-lg font-bold text-white font-mono uppercase tracking-tight">
-                  {latestSignal.instrument} {latestSignal.symbol} {latestSignal.type} @ {latestSignal.entryPrice}
+                  {latestSignal.instrument} {latestSignal.symbol} {latestSignal.type} @ {Number(latestSignal.entryPrice).toFixed(2)}
                 </h3>
               </div>
             </div>
@@ -222,9 +222,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-mono text-sm text-white font-medium">{item.price.toLocaleString()}</p>
+                                    <p className="font-mono text-sm text-white font-medium">{Number(item.price || 0).toFixed(2)}</p>
                                     <p className={`text-xs font-mono mt-0.5 ${item.isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {item.isPositive ? '+' : ''}{item.change}%
+                                        {item.isPositive ? '+' : ''}{Number(item.change || 0).toFixed(2)}%
                                     </p>
                                 </div>
                             </div>

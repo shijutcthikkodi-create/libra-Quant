@@ -1,8 +1,11 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry, ChatMessage } from '../types';
-// Added Clock icon to the lucide-react imports
-import { Plus, Trash2, Edit2, List, X, Check, Radio, UserCheck, RefreshCw, Smartphone, Search, Calendar, ShieldCheck, History, FileText, Zap, Activity, MessageSquare, Send, Loader2, User as UserIcon, AlertTriangle, ChevronLeft, Clock } from 'lucide-react';
+import { 
+  Trash2, Edit2, X, Radio, UserCheck, RefreshCw, Smartphone, Search, 
+  History, Zap, MessageSquare, Send, Loader2, AlertTriangle, 
+  ChevronLeft, Clock 
+} from 'lucide-react';
 import { updateSheetData } from '../services/googleSheetsService';
 
 interface AdminProps {
@@ -99,7 +102,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     setIsSendingMsg(false);
   };
 
-  // Signal dispatcher state
   const [isAddingSignal, setIsAddingSignal] = useState(false);
   const [sigInstrument, setSigInstrument] = useState('NIFTY');
   const [sigSymbol, setSigSymbol] = useState('');
@@ -201,7 +203,9 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                         <div key={s.id} className="bg-slate-950/50 border border-slate-800 p-4 rounded-2xl flex flex-col xl:flex-row items-center justify-between gap-4">
                           <div className="text-left flex-1">
                             <h5 className="text-sm font-black text-white uppercase font-mono">{s.instrument} {s.symbol} {s.type}</h5>
-                            <p className="text-[9px] text-slate-500 font-bold">ENTRY: {s.entryPrice} | CMP: {s.cmp || '--'}</p>
+                            <p className="text-[9px] text-slate-500 font-bold tracking-tight">
+                              ENTRY: {s.entryPrice.toFixed(2)} | CMP: {s.cmp !== undefined ? s.cmp.toFixed(2) : '--'}
+                            </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
                              <button onClick={() => triggerQuickUpdate(s, { targetsHit: 1, status: TradeStatus.PARTIAL, comment: "T1 Reached." }, "T1")} className="px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 text-[9px] font-black uppercase">T1 Done</button>

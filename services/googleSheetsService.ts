@@ -127,7 +127,14 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
     return { 
       signals: (data.signals || []).map((s: any, i: number) => ({ ...parseSignalRow(s, i), sheetIndex: i })).filter((s: any) => s !== null),
       history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i)).filter((s: any) => s !== null),
-      watchlist: (data.watchlist || []).map((w: any) => ({ ...w, symbol: String(getVal(w, 'symbol') || '') })).filter((w: any) => w.symbol),
+      watchlist: (data.watchlist || []).map((w: any) => ({ 
+        ...w, 
+        symbol: String(getVal(w, 'symbol') || ''),
+        price: Number(getVal(w, 'price') || 0),
+        change: Number(getVal(w, 'change') || 0),
+        isPositive: getVal(w, 'isPositive') === true || String(getVal(w, 'isPositive')).toLowerCase() === 'true',
+        lastUpdated: String(getVal(w, 'lastUpdated') || '')
+      })).filter((w: any) => w.symbol),
       users: formattedUsers,
       logs: (data.logs || []).map((l: any) => ({
         timestamp: getVal(l, 'timestamp') || new Date().toISOString(),

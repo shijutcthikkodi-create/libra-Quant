@@ -131,6 +131,8 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
     };
   }, [signals, historySignals]);
 
+  const formatCurrency = (val: number) => `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between">
@@ -149,33 +151,33 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatItem 
           label="Today's P&L" 
-          value={`₹${performance.todayPnL.toLocaleString('en-IN')}`} 
+          value={formatCurrency(performance.todayPnL)} 
           isPositive={performance.todayPnL >= 0} 
           icon={Activity}
         />
         <StatItem 
           label="Monthly Net" 
-          value={`₹${performance.monthPnL.toLocaleString('en-IN')}`} 
+          value={formatCurrency(performance.monthPnL)} 
           isPositive={performance.monthPnL >= 0} 
           icon={Calendar}
         />
         <StatItem 
           label="Monthly Win Rate" 
-          value={`${performance.overallWinRate.toFixed(1)}%`} 
+          value={`${performance.overallWinRate.toFixed(2)}%`} 
           isPositive={performance.overallWinRate >= 50} 
           subtext={`Across ${performance.totalSetups} Setups`}
           icon={CheckCircle2}
         />
         <StatItem 
           label="Monthly Intra WR" 
-          value={`${performance.intradayWinRate.toFixed(1)}%`} 
+          value={`${performance.intradayWinRate.toFixed(2)}%`} 
           isPositive={performance.intradayWinRate >= 50} 
           subtext={`${performance.totalIntra} Intraday Setups`}
           icon={Zap}
         />
         <StatItem 
           label="Monthly BTST WR" 
-          value={`${performance.btstWinRate.toFixed(1)}%`} 
+          value={`${performance.btstWinRate.toFixed(2)}%`} 
           isPositive={performance.btstWinRate >= 50} 
           subtext={`${performance.totalBTST} Overnight Setups`}
           icon={Clock}
@@ -198,7 +200,7 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
             <BarChart data={performance.chartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" opacity={0.5} />
               <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 700}} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 700}} tickFormatter={(val) => `₹${val}`} />
+              <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 700}} tickFormatter={(val) => `₹${val.toFixed(2)}`} />
               <Tooltip 
                 cursor={{fill: 'rgba(30, 41, 59, 0.4)'}} 
                 contentStyle={{backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '12px'}}

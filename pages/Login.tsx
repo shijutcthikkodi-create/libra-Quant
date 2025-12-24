@@ -34,7 +34,89 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         localStorage.setItem('libra_hw_id', storedId);
     }
     setBrowserDeviceId(storedId);
+
+    // Initialize Apple ID
+    if ((window as any).AppleID) {
+      (window as any).AppleID.auth.init({
+        clientId: 'com.libraquant.client', // Replace with your real Client ID
+        scope: 'name email',
+        redirectURI: window.location.origin,
+        usePopup: true
+      });
+    }
   }, []);
+
+  const handleAppleLogin = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const response = await (window as any).AppleID.auth.signIn();
+      // In a real app, verify the response.authorization.id_token with your backend
+      console.log('Apple Auth Response:', response);
+      
+      const data = await fetchSheetData();
+      const users = data?.users || [];
+      
+      // Look for user by Apple ID or Email (mocked for demo as matching by ID)
+      const appleId = response.user?.email || response.authorization.id_token.substring(0, 10);
+      const sheetUser = users.find((u: any) => u.id === appleId || u.phoneNumber.includes(appleId));
+
+      if (!sheetUser) {
+        setError('Apple account not linked to an active subscription.');
+        setLoading(false);
+        return;
+      }
+
+      // Proceed with standard login success logic
+      completeLogin(sheetUser);
+    } catch (err) {
+      console.error('Apple Login Error:', err);
+      setError('Apple authentication failed.');
+      setLoading(false);
+    }
+  };
+
+  const completeLogin = async (sheetUser: any) => {
+    if (!sheetUser.isAdmin) {
+        const rawId = String(sheetUser.deviceId || '').trim();
+        const savedDeviceId = (rawId && rawId !== "" && rawId !== "null" && rawId !== "undefined") ? rawId : null;
+        
+        if (savedDeviceId && savedDeviceId !== browserDeviceId) {
+            setError(`SECURITY LOCK: Account active on another terminal. Reset required. Device ID: ${browserDeviceId.slice(0, 8)}`);
+            setLoading(false);
+            return;
+        }
+        
+        if (!savedDeviceId) {
+            const updatedUser = { ...sheetUser, deviceId: browserDeviceId };
+            await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
+            await updateSheetData('logs', 'ADD', {
+              timestamp: new Date().toISOString(),
+              user: sheetUser.name,
+              action: 'DEVICE_BIND',
+              details: `Locked to ${browserDeviceId.slice(0, 12)}`,
+              type: 'SECURITY'
+            });
+        }
+    }
+
+    await updateSheetData('logs', 'ADD', {
+        timestamp: new Date().toISOString(),
+        user: sheetUser.name,
+        action: 'LOGIN_SUCCESS',
+        details: `Device: ${browserDeviceId.slice(0, 8)}`,
+        type: 'SECURITY'
+    });
+
+    onLogin({
+        id: sheetUser.id,
+        phoneNumber: sheetUser.phoneNumber || '',
+        name: sheetUser.name,
+        expiryDate: sheetUser.expiryDate,
+        isAdmin: sheetUser.isAdmin,
+        deviceId: browserDeviceId
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,49 +167,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             }
         }
 
-        if (!sheetUser.isAdmin) {
-            const rawId = String(sheetUser.deviceId || '').trim();
-            const savedDeviceId = (rawId && rawId !== "" && rawId !== "null" && rawId !== "undefined") ? rawId : null;
-            
-            if (savedDeviceId && savedDeviceId !== browserDeviceId) {
-                setError(`SECURITY LOCK: Account active on another terminal. Reset required. Device ID: ${browserDeviceId.slice(0, 8)}`);
-                setLoading(false);
-                return;
-            }
-            
-            if (!savedDeviceId) {
-                const updatedUser = { ...sheetUser, deviceId: browserDeviceId };
-                await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
-                await updateSheetData('logs', 'ADD', {
-                  timestamp: new Date().toISOString(),
-                  user: sheetUser.name,
-                  action: 'DEVICE_BIND',
-                  details: `Locked to ${browserDeviceId.slice(0, 12)}`,
-                  type: 'SECURITY'
-                });
-            }
-        }
-
-        await updateSheetData('logs', 'ADD', {
-            timestamp: new Date().toISOString(),
-            user: sheetUser.name,
-            action: 'LOGIN_SUCCESS',
-            details: `Device: ${browserDeviceId.slice(0, 8)}`,
-            type: 'SECURITY'
-        });
-
-        onLogin({
-            id: sheetUser.id,
-            phoneNumber: phone,
-            name: sheetUser.name,
-            expiryDate: sheetUser.expiryDate,
-            isAdmin: sheetUser.isAdmin,
-            deviceId: browserDeviceId
-        });
+        completeLogin(sheetUser);
     } catch (err) {
         console.error("Login failure:", err);
         setError('System Sync Error. Check connection or try again.');
-    } finally {
         setLoading(false);
     }
   };
@@ -183,10 +226,31 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     </div>
                 )}
 
-                <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-xl shadow-blue-900/20 disabled:opacity-50 flex items-center justify-center text-sm uppercase tracking-widest">
-                    {loading ? <Loader2 className="animate-spin mr-2" size={18} /> : null}
-                    {loading ? 'Authenticating...' : 'Sign In To Terminal'}
-                </button>
+                <div className="space-y-3">
+                  <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl transition-all shadow-xl shadow-blue-900/20 disabled:opacity-50 flex items-center justify-center text-sm uppercase tracking-widest">
+                      {loading ? <Loader2 className="animate-spin mr-2" size={18} /> : null}
+                      {loading ? 'Authenticating...' : 'Sign In To Terminal'}
+                  </button>
+
+                  <div className="relative flex items-center py-2">
+                    <div className="flex-grow border-t border-slate-800"></div>
+                    <span className="flex-shrink mx-4 text-[10px] text-slate-600 uppercase font-black">or</span>
+                    <div className="flex-grow border-t border-slate-800"></div>
+                  </div>
+
+                  {/* Apple Sign In Button */}
+                  <button 
+                    type="button" 
+                    onClick={handleAppleLogin}
+                    disabled={loading}
+                    className="w-full bg-white hover:bg-slate-100 text-black font-bold py-3.5 rounded-xl transition-all flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 256 315" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid">
+                      <path d="M213.803 167.03c.442 47.58 41.74 63.413 42.147 63.615-.35 1.116-6.599 22.563-21.757 44.716-13.104 19.153-26.705 38.235-48.13 38.63-21.05.388-27.82-12.483-51.888-12.483-24.053 0-31.482 12.093-51.48 12.87-20.78.775-36.31-20.726-49.52-39.784C5.9 256.402-14.28 190.39 6.846 153.74c10.518-18.257 29.273-29.82 49.614-30.116 15.632-.303 30.33 10.512 39.914 10.512 9.574 0 27.28-12.9 45.96-10.99 7.82.32 29.757 3.164 43.83 23.79-.115.07-26.335 15.403-26.36 46.084M176.024 74.34c20.326-24.588 19.016-46.856 18.06-56.516-17.756 1.444-39.22 12.463-51.96 27.31-11.42 13.113-21.43 35.736-18.73 54.875 19.863 1.54 39.873-10.428 52.63-25.67" fill="currentColor"/>
+                    </svg>
+                    <span className="text-sm">Continue with Apple</span>
+                  </button>
+                </div>
             </form>
 
             <div className="mt-8 pt-6 border-t border-slate-800/50 text-center">
