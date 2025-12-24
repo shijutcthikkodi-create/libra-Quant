@@ -20,11 +20,10 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
   granularHighlights,
   onSignalUpdate
 }) => {
-  // Broader Index matchers to catch "NIFTY BANK", "BANK NIFTY", etc.
   const INDEX_MATCHERS = ['NIFTY', 'BANK', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
 
   const getISTDateGroup = (date: Date) => {
-    if (!date || isNaN(date.getTime())) return 'UNKNOWN DATE';
+    if (!date || isNaN(date.getTime())) return 'ARCHIVED TRADES';
     const now = new Date();
     
     const fmt = (d: Date) => new Intl.DateTimeFormat('en-IN', { 
@@ -52,8 +51,10 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
   };
 
   const { groupedSignals, stats, totalCount } = useMemo(() => {
+    // Merge both live and historical signals
     const combinedData = [...signals, ...historySignals];
     
+    // Deduplicate by the now-unique source-prefixed IDs
     const seenIds = new Set();
     const uniqueTrades = combinedData.filter(item => {
       if (!item.id) return false;
@@ -86,13 +87,10 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push(s);
 
-      // Robust P&L Calculation: prioritize Rupee value, fallback to points * qty
-      // Even if quantity is 0 or null, we assume 1 to reflect the trade's performance in stats
       const effectiveQty = (s.quantity && s.quantity > 0) ? s.quantity : 1;
       const pnl = s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * effectiveQty;
       totalNet += pnl;
 
-      // Robust Index Detection: check instrument name for keywords
       const instRaw = (s.instrument || '').toUpperCase();
       const isIndex = INDEX_MATCHERS.some(idx => instRaw.includes(idx));
 
@@ -127,11 +125,14 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     </div>
   );
 
+  // Group sorting: Today first, then Yesterday, then chronologically backwards
   const groupKeys = Object.keys(groupedSignals).sort((a, b) => {
     if (a === 'TODAY') return -1;
     if (b === 'TODAY') return 1;
     if (a === 'YESTERDAY') return -1;
     if (b === 'YESTERDAY') return 1;
+    if (a === 'ARCHIVED TRADES') return 1;
+    if (b === 'ARCHIVED TRADES') return -1;
     return new Date(b).getTime() - new Date(a).getTime();
   });
 
@@ -184,7 +185,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
               <Calendar size={40} className="text-slate-800" />
             </div>
             <p className="text-slate-500 font-black uppercase tracking-widest text-sm">Historical vault is empty</p>
-            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Archive data will appear here once trades are exited.</p>
+            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Check if your 'history' tab is populated in the spreadsheet.</p>
           </div>
         ) : (
           <div className="space-y-10">
