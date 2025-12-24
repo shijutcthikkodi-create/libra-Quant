@@ -7,7 +7,6 @@ import Stats from './pages/Stats';
 import Rules from './pages/Rules';
 import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
-import ChatWidget from './components/ChatWidget';
 import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
@@ -49,7 +48,6 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [pendingMessages, setPendingMessages] = useState<(ChatMessage & { status?: 'sending' | 'failed' })[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
@@ -57,7 +55,6 @@ const App: React.FC = () => {
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
   const prevWatchRef = useRef<WatchlistItem[]>([]);
-  const prevMessagesCountRef = useRef<number>(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
@@ -142,22 +139,6 @@ const App: React.FC = () => {
             }
             if (diff.size > 0) { currentHighlights[sym] = diff; hasAnyChanges = true; }
           });
-
-          // Improved Message Sync Check
-          if (data.messages.length > prevMessagesCountRef.current) {
-            // Check if any of the new messages require a notification
-            const newMessages = data.messages.slice(prevMessagesCountRef.current);
-            const adminId = user?.id || user?.phoneNumber;
-            
-            const deservesAlert = newMessages.some(m => {
-              if (user?.isAdmin) return !m.isAdminReply; // Admin alerts for client messages
-              return m.userId === adminId && m.isAdminReply; // Client alerts for admin replies
-            });
-
-            if (deservesAlert) {
-                hasAnyChanges = true;
-            }
-          }
         }
 
         if (hasAnyChanges) {
@@ -175,26 +156,13 @@ const App: React.FC = () => {
         setLastSyncTime(nowStr);
         prevSignalsRef.current = [...data.signals];
         prevWatchRef.current = [...data.watchlist];
-        prevMessagesCountRef.current = data.messages.length;
         
         setSignals([...data.signals]);
         setHistorySignals([...(data.history || [])]);
         setWatchlist([...data.watchlist]);
         setUsers([...data.users]);
         setLogs([...(data.logs || [])]);
-        setMessages([...data.messages]);
-
-        // Robust cleanup of pending messages
-        setPendingMessages(currentPending => 
-          currentPending.filter(pending => 
-            !data.messages.some(m => 
-              m.text === pending.text && 
-              m.userId === pending.userId && 
-              m.isAdminReply === pending.isAdminReply
-            )
-          )
-        );
-
+        setMessages([...(data.messages || [])]);
         setConnectionStatus('connected');
       }
     } catch (err: any) {
@@ -202,7 +170,7 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playLongBeep, user]);
+  }, [playLongBeep]);
 
   const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', updatedSignal, updatedSignal.id);
@@ -214,31 +182,18 @@ const App: React.FC = () => {
     return success;
   }, []);
 
-  const handleSendMessage = useCallback(async (text: string, isAdminReply = false, targetUserId?: string) => {
-    if (!user) return false;
-    
-    const tempId = `TEMP-${Date.now()}`;
-    const newMessage: ChatMessage & { status: 'sending' | 'failed' } = {
-      id: tempId,
-      userId: targetUserId || user.id || user.phoneNumber,
-      senderName: isAdminReply ? 'Libra Support' : user.name,
-      text,
-      timestamp: new Date().toISOString(),
-      isAdminReply,
-      status: 'sending'
+  const handleSendMessage = async (text: string, isAdminReply: boolean, targetUserId: string) => {
+    const payload = {
+        userId: targetUserId,
+        senderName: isAdminReply ? 'Libra Support' : user?.name || 'Client',
+        text,
+        timestamp: new Date().toISOString(),
+        isAdminReply
     };
-
-    setPendingMessages(prev => [...prev, newMessage]);
-
-    const success = await updateSheetData('messages', 'ADD', newMessage);
-    
-    if (success) {
-      setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: undefined } : m));
-    } else {
-      setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed' } : m));
-    }
+    const success = await updateSheetData('messages', 'ADD', payload);
+    if (success) sync(false);
     return success;
-  }, [user]);
+  };
 
   useEffect(() => {
     sync(true);
@@ -309,14 +264,20 @@ const App: React.FC = () => {
       {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
-      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} messages={messages} onSendMessage={handleSendMessage} onNavigate={setPage} />}
-
-      <ChatWidget 
-        messages={[...messages, ...pendingMessages]} 
-        onSendMessage={handleSendMessage} 
-        user={user} 
-        users={users} 
-      />
+      {user?.isAdmin && page === 'admin' && (
+        <Admin 
+          watchlist={watchlist} 
+          onUpdateWatchlist={setWatchlist} 
+          signals={signals} 
+          onUpdateSignals={setSignals} 
+          users={users} 
+          onUpdateUsers={setUsers} 
+          logs={logs} 
+          messages={messages}
+          onSendMessage={handleSendMessage}
+          onNavigate={setPage} 
+        />
+      )}
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>

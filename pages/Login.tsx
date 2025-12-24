@@ -48,7 +48,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         const data = await fetchSheetData();
         const users = data?.users || [];
         
-        // Normalize input phone to compare only last 10 digits to avoid +91 issues
         const cleanInputPhone = phone.replace(/\D/g, '').slice(-10);
 
         const sheetUser = users.find((u: any) => {
@@ -56,21 +55,18 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             return cleanSheetPhone === cleanInputPhone;
         });
 
-        // 1. Check User Existence
         if (!sheetUser) {
             setError('Account not registered. Please contact Admin with your ID: ' + browserDeviceId.slice(0, 8));
             setLoading(false);
             return;
         }
 
-        // 2. Validate Password (Access Key)
         if (password.trim() !== String(sheetUser.password).trim()) {
             setError('Incorrect Access Key. Check and try again.');
             setLoading(false);
             return;
         }
 
-        // 3. Subscription & Password Expiry Check
         if (sheetUser.expiryDate) {
             let expiryStr = sheetUser.expiryDate;
             if (expiryStr.includes('-') && expiryStr.split('-')[0].length === 2) {
@@ -89,7 +85,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             }
         }
 
-        // 4. RIGID DEVICE LOCKING LOGIC
         if (!sheetUser.isAdmin) {
             const rawId = String(sheetUser.deviceId || '').trim();
             const savedDeviceId = (rawId && rawId !== "" && rawId !== "null" && rawId !== "undefined") ? rawId : null;
@@ -103,7 +98,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             if (!savedDeviceId) {
                 const updatedUser = { ...sheetUser, deviceId: browserDeviceId };
                 await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
-                // Also log the binding
                 await updateSheetData('logs', 'ADD', {
                   timestamp: new Date().toISOString(),
                   user: sheetUser.name,
@@ -113,6 +107,14 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 });
             }
         }
+
+        await updateSheetData('logs', 'ADD', {
+            timestamp: new Date().toISOString(),
+            user: sheetUser.name,
+            action: 'LOGIN_SUCCESS',
+            details: `Device: ${browserDeviceId.slice(0, 8)}`,
+            type: 'SECURITY'
+        });
 
         onLogin({
             id: sheetUser.id,

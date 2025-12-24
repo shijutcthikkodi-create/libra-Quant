@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry, ChatMessage } from '../types';
-import { Plus, Trash2, Edit2, List, X, Check, Radio, UserCheck, RefreshCw, Smartphone, Search, Calendar, ShieldCheck, History, FileText, Zap, Activity, MessageSquare, Send, Loader2, User as UserIcon } from 'lucide-react';
+// Added Clock icon to the lucide-react imports
+import { Plus, Trash2, Edit2, List, X, Check, Radio, UserCheck, RefreshCw, Smartphone, Search, Calendar, ShieldCheck, History, FileText, Zap, Activity, MessageSquare, Send, Loader2, User as UserIcon, AlertTriangle, ChevronLeft, Clock } from 'lucide-react';
 import { updateSheetData } from '../services/googleSheetsService';
 
 interface AdminProps {
@@ -21,8 +22,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   const [activeTab, setActiveTab] = useState<'SIGNALS' | 'CLIENTS' | 'LOGS' | 'MESSAGES'>('SIGNALS');
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [validationError, setValidationError] = useState<string | null>(null);
-
   const [activeChatUserId, setActiveChatUserId] = useState<string | null>(null);
   const [adminChatText, setAdminChatText] = useState('');
   const [isSendingMsg, setIsSendingMsg] = useState(false);
@@ -35,14 +34,30 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     );
   }, [users, searchQuery]);
 
-  /**
-   * Universal Thread Discovery logic for Admin Panel
-   * Scans all messages and groups them by unique userId (Thread Owner)
-   */
+  const getExpiryStatus = (expiryStr: string) => {
+    if (!expiryStr) return { label: 'NO EXPIRY', color: 'text-slate-500', bg: 'bg-slate-500/10', border: 'border-slate-800' };
+    
+    let normalized = expiryStr;
+    if (expiryStr.includes('-') && expiryStr.split('-')[0].length === 2) {
+      const parts = expiryStr.split('-');
+      normalized = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    
+    const expiryDate = new Date(normalized);
+    expiryDate.setHours(23, 59, 59, 999);
+    const now = new Date();
+    
+    if (isNaN(expiryDate.getTime())) return { label: 'INVALID', color: 'text-slate-500', bg: 'bg-slate-500/10', border: 'border-slate-800' };
+    
+    const diffDays = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (now > expiryDate) return { label: 'EXPIRED', color: 'text-rose-500', bg: 'bg-rose-500/10', border: 'border-rose-500/40' };
+    if (diffDays <= 3) return { label: `${diffDays}D LEFT`, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/40' };
+    return { label: 'ACTIVE', color: 'text-emerald-500', bg: 'bg-emerald-500/10', border: 'border-emerald-500/40' };
+  };
+
   const chatSessions = useMemo(() => {
     const threadMap = new Map<string, { lastMsg: ChatMessage; user: User | undefined }>();
-    
-    // Admin's own ID/Phone to exclude self-threads
     const adminRefIds = users.filter(u => u.isAdmin).flatMap(u => [u.id, u.phoneNumber]);
 
     messages.forEach(m => {
@@ -84,7 +99,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     setIsSendingMsg(false);
   };
 
-  // --- Signal Dispatch ---
+  // Signal dispatcher state
   const [isAddingSignal, setIsAddingSignal] = useState(false);
   const [sigInstrument, setSigInstrument] = useState('NIFTY');
   const [sigSymbol, setSigSymbol] = useState('');
@@ -100,9 +115,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     setIsSaving(true);
     const payload = { ...signal, ...updates, lastTradedTimestamp: new Date().toISOString() };
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', payload, signal.id);
-    if (success) {
-      onUpdateSignals(signals.map(s => s.id === signal.id ? (payload as TradeSignal) : s));
-    }
+    if (success) onUpdateSignals(signals.map(s => s.id === signal.id ? (payload as TradeSignal) : s));
     setIsSaving(false);
   };
 
@@ -137,8 +150,8 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     <div className="max-w-6xl mx-auto pb-20">
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8">
         <div>
-            <h2 className="text-2xl font-black text-white tracking-tighter uppercase">Admin Console</h2>
-            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1">Institutional Signal Control</p>
+            <h2 className="text-2xl font-black text-white tracking-tighter uppercase leading-none">Admin Console</h2>
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1">Institutional Terminal Management</p>
         </div>
         <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-800 mt-4 md:mt-0 shadow-lg overflow-x-auto">
             {[
@@ -163,29 +176,26 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
           <div className="space-y-6">
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
                   <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-800/20">
-                      <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center">
-                        <Zap size={18} className="mr-3 text-blue-500" />
-                        Signal Dispatcher
+                      <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center">
+                        <Zap size={18} className="mr-3 text-blue-500" /> Dispatch Center
                       </h3>
                       <button onClick={() => setIsAddingSignal(!isAddingSignal)} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">
-                          {isAddingSignal ? 'Close' : 'New Call'}
+                          {isAddingSignal ? 'Cancel' : 'New Call'}
                       </button>
                   </div>
-
                   {isAddingSignal && (
                       <div className="p-6 bg-slate-950/50 border-b border-slate-800">
                           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
                               <input type="text" value={sigSymbol} onChange={e => setSigSymbol(e.target.value)} placeholder="Strike" className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white" />
                               <input type="number" value={sigEntry} onChange={e => setSigEntry(e.target.value)} placeholder="Entry" className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white" />
                               <input type="number" value={sigSL} onChange={e => setSigSL(e.target.value)} placeholder="SL" className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white" />
-                              <input type="text" value={sigTargets} onChange={e => setSigTargets(e.target.value)} placeholder="Targets (10,20,30)" className="md:col-span-2 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white" />
+                              <input type="text" value={sigTargets} onChange={e => setSigTargets(e.target.value)} placeholder="Targets (e.g. 10,20)" className="md:col-span-2 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-white" />
                           </div>
-                          <button onClick={handleAddSignal} disabled={isSaving} className="w-full bg-blue-600 py-3 rounded-xl text-xs font-black text-white uppercase">
-                              {isSaving ? 'Dispatching...' : 'Broadcast Signal'}
+                          <button onClick={handleAddSignal} disabled={isSaving} className="w-full bg-blue-600 py-3 rounded-xl text-xs font-black text-white uppercase tracking-widest">
+                              {isSaving ? 'Broadcasting...' : 'Broadcast Signal'}
                           </button>
                       </div>
                   )}
-
                   <div className="p-5 space-y-4">
                       {signals.filter(s => s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL).map(s => (
                         <div key={s.id} className="bg-slate-950/50 border border-slate-800 p-4 rounded-2xl flex flex-col xl:flex-row items-center justify-between gap-4">
@@ -194,8 +204,8 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                             <p className="text-[9px] text-slate-500 font-bold">ENTRY: {s.entryPrice} | CMP: {s.cmp || '--'}</p>
                           </div>
                           <div className="flex flex-wrap gap-2">
-                             <button onClick={() => triggerQuickUpdate(s, { targetsHit: 1, status: TradeStatus.PARTIAL, comment: "Target 1 Reached." }, "T1")} className="px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 text-[9px] font-black uppercase">T1 Done</button>
-                             <button onClick={() => triggerQuickUpdate(s, { status: TradeStatus.ALL_TARGET, comment: "All Targets Completed!" }, "ALL")} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[9px] font-black uppercase">Finish</button>
+                             <button onClick={() => triggerQuickUpdate(s, { targetsHit: 1, status: TradeStatus.PARTIAL, comment: "T1 Reached." }, "T1")} className="px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 text-[9px] font-black uppercase">T1 Done</button>
+                             <button onClick={() => triggerQuickUpdate(s, { status: TradeStatus.ALL_TARGET, comment: "All Targets Done!" }, "ALL")} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[9px] font-black uppercase">Finish</button>
                              <button onClick={() => triggerQuickUpdate(s, { status: TradeStatus.STOPPED, comment: "SL Hit." }, "SL")} className="px-3 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 text-[9px] font-black uppercase">SL Hit</button>
                           </div>
                         </div>
@@ -206,24 +216,20 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
       )}
 
       {activeTab === 'MESSAGES' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl h-[600px] flex flex-col md:flex-row">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden h-[600px] flex flex-col md:flex-row shadow-2xl">
            <div className="w-full md:w-80 border-r border-slate-800 flex flex-col bg-slate-900/50">
               <div className="p-4 border-b border-slate-800 bg-slate-800/20">
-                 <h3 className="text-xs font-black text-white uppercase tracking-widest">Active Threads</h3>
+                 <h3 className="text-xs font-black text-white uppercase tracking-widest">Active Client Threads</h3>
               </div>
               <div className="flex-1 overflow-y-auto">
                  {chatSessions.length === 0 ? (
                    <div className="p-10 text-center opacity-30">
                      <MessageSquare size={32} className="mx-auto mb-2" />
-                     <p className="text-[10px] font-bold uppercase">No Conversations Found</p>
+                     <p className="text-[10px] font-bold uppercase">No Enquiries</p>
                    </div>
                  ) : (
                    chatSessions.map(([uid, data]) => (
-                     <button 
-                       key={uid} 
-                       onClick={() => setActiveChatUserId(uid)}
-                       className={`w-full p-4 flex items-center space-x-3 transition-all border-b border-slate-800/50 ${activeChatUserId === uid ? 'bg-blue-600/10 border-l-4 border-l-blue-600' : 'hover:bg-slate-800/30'}`}
-                     >
+                     <button key={uid} onClick={() => setActiveChatUserId(uid)} className={`w-full p-4 flex items-center space-x-3 transition-all border-b border-slate-800/50 ${activeChatUserId === uid ? 'bg-blue-600/10 border-l-4 border-l-blue-600' : 'hover:bg-slate-800/30'}`}>
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black ${!data.lastMsg.isAdminReply ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'}`}>
                            {data.user?.name.slice(0, 1).toUpperCase() || uid.slice(-1).toUpperCase()}
                         </div>
@@ -241,7 +247,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                  )}
               </div>
            </div>
-
            <div className="flex-1 flex flex-col bg-slate-950/20">
               {activeChatUserId ? (
                 <>
@@ -249,15 +254,15 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                      <h4 className="text-xs font-black text-white uppercase tracking-widest">
                        {users.find(u => u.id === activeChatUserId || u.phoneNumber === activeChatUserId)?.name || `Client ${activeChatUserId}`}
                      </h4>
-                     <button onClick={() => setActiveChatUserId(null)} className="p-1 text-slate-500"><X size={16} /></button>
+                     <button onClick={() => setActiveChatUserId(null)} className="p-1 text-slate-500"><ChevronLeft size={20} /></button>
                   </div>
                   <div className="flex-1 overflow-y-auto p-6 space-y-4">
                      {activeThread.map((msg, idx) => (
                        <div key={idx} className={`flex flex-col ${msg.isAdminReply ? 'items-end' : 'items-start'}`}>
-                          <div className={`max-w-[80%] p-3 rounded-2xl text-[12px] ${msg.isAdminReply ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700'}`}>
+                          <div className={`max-w-[80%] p-3 rounded-2xl text-[12px] ${msg.isAdminReply ? 'bg-blue-600 text-white rounded-tr-none shadow-lg' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700'}`}>
                              {msg.text}
                           </div>
-                          <span className="text-[8px] font-bold text-slate-600 mt-1 uppercase">
+                          <span className="text-[8px] font-bold text-slate-600 mt-1 uppercase tracking-tighter">
                             {new Date(msg.timestamp).toLocaleTimeString()}
                           </span>
                        </div>
@@ -266,8 +271,8 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                   </div>
                   <form onSubmit={handleAdminSend} className="p-4 bg-slate-900 border-t border-slate-800">
                      <div className="relative">
-                        <input type="text" value={adminChatText} onChange={e => setAdminChatText(e.target.value)} placeholder="Reply to client..." className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 pl-4 pr-12 text-xs text-white outline-none" />
-                        <button type="submit" disabled={!adminChatText.trim() || isSendingMsg} className="absolute right-2 top-1.5 p-2 bg-blue-600 text-white rounded-lg">
+                        <input type="text" value={adminChatText} onChange={e => setAdminChatText(e.target.value)} placeholder="Enter reply..." className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3 pl-4 pr-12 text-xs text-white outline-none" />
+                        <button type="submit" disabled={!adminChatText.trim() || isSendingMsg} className="absolute right-2 top-1.5 p-2 bg-blue-600 text-white rounded-lg transition-transform active:scale-90">
                            {isSendingMsg ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                         </button>
                      </div>
@@ -275,8 +280,8 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                 </>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-center p-10 opacity-20">
-                   <MessageSquare size={64} />
-                   <p className="mt-4 text-xs font-black uppercase tracking-widest">Select a thread to engage</p>
+                   <MessageSquare size={64} strokeWidth={1} />
+                   <p className="mt-4 text-[10px] font-black uppercase tracking-[0.3em]">Institutional Helpdesk</p>
                 </div>
               )}
            </div>
@@ -285,29 +290,59 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
 
       {activeTab === 'CLIENTS' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-              <div className="p-4 border-b border-slate-800 flex items-center">
+              <div className="p-4 border-b border-slate-800 flex items-center bg-slate-800/10">
                   <Search className="text-slate-500 mr-3" size={18} />
-                  <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search Subscribers..." className="w-full bg-transparent text-xs text-white outline-none" />
+                  <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Filter Subscribers..." className="w-full bg-transparent text-xs text-white outline-none" />
               </div>
               <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-950/50 text-slate-500 font-black uppercase">
+                      <thead className="bg-slate-950/50 text-slate-500 font-black uppercase text-[9px] tracking-widest border-b border-slate-800">
                           <tr>
-                              <th className="p-4">Name</th>
-                              <th className="p-4">Phone</th>
-                              <th className="p-4">Expiry</th>
-                              <th className="p-4 text-right">Hardware</th>
+                              <th className="p-5">Name & Identity</th>
+                              <th className="p-5">Subscription Expiry</th>
+                              <th className="p-5">Terminal Binding</th>
+                              <th className="p-5 text-right">Access Control</th>
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800">
-                          {filteredUsers.map(u => (
-                            <tr key={u.id} className="hover:bg-slate-800/30">
-                                <td className="p-4 text-white font-bold">{u.name}</td>
-                                <td className="p-4 text-slate-400 font-mono">{u.phoneNumber}</td>
-                                <td className="p-4 text-slate-400">{u.expiryDate || 'N/A'}</td>
-                                <td className="p-4 text-right font-mono text-[10px] text-slate-500">{u.deviceId ? `LOCKED: ${u.deviceId.slice(0, 8)}` : 'UNLINKED'}</td>
-                            </tr>
-                          ))}
+                          {filteredUsers.map(u => {
+                            const status = getExpiryStatus(u.expiryDate);
+                            return (
+                              <tr key={u.id} className={`transition-colors ${status.label === 'EXPIRED' ? 'bg-rose-500/5' : ''} hover:bg-slate-800/30`}>
+                                  <td className="p-5">
+                                      <div className="font-bold text-white mb-1 flex items-center">
+                                        {u.name}
+                                        {status.label === 'EXPIRED' && <AlertTriangle size={12} className="ml-2 text-rose-500 animate-pulse" />}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 font-mono uppercase tracking-tighter">{u.phoneNumber}</div>
+                                  </td>
+                                  <td className="p-5">
+                                      <div className={`inline-flex items-center px-2 py-1 rounded-md text-[9px] font-black border ${status.bg} ${status.color} ${status.border} mb-1.5`}>
+                                        <Clock size={10} className="mr-1.5" />
+                                        {status.label}
+                                      </div>
+                                      <div className="text-[10px] font-mono text-slate-400">{u.expiryDate || 'PERPETUAL'}</div>
+                                  </td>
+                                  <td className="p-5">
+                                      <div className={`flex items-center text-[10px] font-black uppercase tracking-widest ${u.deviceId ? 'text-blue-500' : 'text-slate-700'}`}>
+                                          <Smartphone size={12} className="mr-2" />
+                                          {u.deviceId ? `BOUND: ${u.deviceId.slice(0, 8)}` : 'UNLINKED'}
+                                      </div>
+                                      {u.deviceId && (
+                                          <button onClick={() => updateSheetData('users', 'UPDATE_USER', { ...u, deviceId: "" }, u.id)} className="text-[8px] font-black text-slate-500 hover:text-rose-500 uppercase mt-1 tracking-tighter transition-colors">
+                                              Reset Terminal Lock
+                                          </button>
+                                      )}
+                                  </td>
+                                  <td className="p-5 text-right">
+                                     <div className="flex items-center justify-end space-x-2">
+                                        <button className="p-2 text-slate-500 hover:text-blue-500 transition-colors"><Edit2 size={16} /></button>
+                                        <button className="p-2 text-slate-500 hover:text-rose-500 transition-colors"><Trash2 size={16} /></button>
+                                     </div>
+                                  </td>
+                              </tr>
+                            );
+                          })}
                       </tbody>
                   </table>
               </div>
@@ -315,22 +350,41 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
       )}
 
       {activeTab === 'LOGS' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-           <div className="p-5 border-b border-slate-800 flex items-center">
-              <History size={18} className="mr-3 text-purple-500" />
-              <h3 className="text-sm font-black text-white uppercase tracking-widest">Audit Trail</h3>
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+           <div className="p-5 border-b border-slate-800 bg-slate-800/10 flex items-center justify-between">
+              <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center">
+                  <History size={18} className="mr-3 text-purple-500" /> System Audit Trail
+              </h3>
            </div>
            <div className="max-h-[500px] overflow-y-auto">
               <table className="w-full text-left text-[10px]">
+                  <thead className="bg-slate-950/80 text-slate-500 font-black uppercase text-[9px] tracking-widest border-b border-slate-800 sticky top-0">
+                      <tr>
+                          <th className="p-4">Time (IST)</th>
+                          <th className="p-4">User</th>
+                          <th className="p-4">Action</th>
+                          <th className="p-4 pr-6">Activity Metadata</th>
+                      </tr>
+                  </thead>
                   <tbody className="divide-y divide-slate-800">
                       {(logs || []).length > 0 ? [...logs].reverse().map((log, idx) => (
-                          <tr key={idx} className="hover:bg-slate-800/5">
-                              <td className="p-4 font-mono text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
+                          <tr key={idx} className="hover:bg-slate-800/5 transition-colors">
+                              <td className="p-4 font-mono text-slate-500 whitespace-nowrap">{new Date(log.timestamp).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, day: '2-digit', month: 'short' })}</td>
                               <td className="p-4 font-black text-white">{log.user}</td>
-                              <td className="p-4 text-slate-300 uppercase">{log.action}</td>
-                              <td className="p-4 text-slate-500 italic">{log.details}</td>
+                              <td className="p-4">
+                                <span className={`px-2 py-0.5 rounded-full text-[8px] font-black border ${
+                                  log.action.includes('LOGIN') ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' : 
+                                  log.action.includes('DEVICE') ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
+                                  'bg-slate-800 text-slate-400 border-slate-700'
+                                }`}>
+                                  {log.action}
+                                </span>
+                              </td>
+                              <td className="p-4 pr-6 text-slate-400 font-mono text-[9px] break-all">
+                                {log.details || '--'}
+                              </td>
                           </tr>
-                      )) : <tr><td className="p-10 text-center text-slate-600">No logs found</td></tr>}
+                      )) : <tr><td colSpan={4} className="p-20 text-center text-slate-600 uppercase font-black tracking-widest opacity-20">Audit Trail is Empty</td></tr>}
                   </tbody>
               </table>
            </div>

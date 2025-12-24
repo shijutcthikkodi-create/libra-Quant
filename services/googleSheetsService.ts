@@ -29,20 +29,9 @@ const robustParseJson = (text: string) => {
   }
 };
 
-const formatToIST = (input: any): string => {
-  try {
-    const date = new Date(input);
-    if (!isNaN(date.getTime())) {
-      return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-    }
-  } catch (e) {}
-  return String(input || '--');
-};
-
 const getVal = (obj: any, targetKey: string): any => {
   if (!obj || typeof obj !== 'object') return undefined;
   const normalizedTarget = targetKey.toLowerCase().replace(/\s|_|-/g, '');
-  if (obj[targetKey] !== undefined) return obj[targetKey];
   for (const key in obj) {
     if (key.toLowerCase().replace(/\s|_|-/g, '') === normalizedTarget) return obj[key];
   }
@@ -115,36 +104,38 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
 
     const data = robustParseJson(await response.text());
     
-    const formattedUsers = (data.users || []).map((u: any) => {
-      const phone = String(getVal(u, 'phoneNumber') || '');
-      return {
-        ...u,
-        id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || phone,
-        name: String(getVal(u, 'name') || 'Client'),
-        phoneNumber: phone,
-        expiryDate: String(getVal(u, 'expiryDate') || ''),
-        isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
-        deviceId: getVal(u, 'deviceId') ? String(getVal(u, 'deviceId')) : null
-      };
-    });
+    const formattedUsers = (data.users || []).map((u: any) => ({
+      ...u,
+      id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || String(getVal(u, 'phoneNumber') || ''),
+      name: String(getVal(u, 'name') || 'Client'),
+      phoneNumber: String(getVal(u, 'phoneNumber') || ''),
+      password: String(getVal(u, 'password') || ''),
+      expiryDate: String(getVal(u, 'expiryDate') || ''),
+      isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
+      deviceId: getVal(u, 'deviceId') ? String(getVal(u, 'deviceId')) : null
+    }));
 
-    const formattedMessages = (data.messages || [])
-      .map((m: any) => ({
-        id: String(getVal(m, 'id') || Math.random()),
-        userId: String(getVal(m, 'userId') || getVal(m, 'uid') || '').trim(),
-        senderName: String(getVal(m, 'senderName') || 'Subscriber'),
-        text: String(getVal(m, 'text') || '').trim(),
-        timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
-        isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
-      }))
-      .filter((m: any) => m.userId && m.text);
+    const formattedMessages = (data.messages || []).map((m: any) => ({
+      id: String(getVal(m, 'id') || Math.random()),
+      userId: String(getVal(m, 'userId') || getVal(m, 'uid') || '').trim(),
+      senderName: String(getVal(m, 'senderName') || 'Subscriber'),
+      text: String(getVal(m, 'text') || '').trim(),
+      timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
+      isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
+    })).filter((m: any) => m.userId && m.text);
 
     return { 
       signals: (data.signals || []).map((s: any, i: number) => ({ ...parseSignalRow(s, i), sheetIndex: i })).filter((s: any) => s !== null),
       history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i)).filter((s: any) => s !== null),
-      watchlist: (data.watchlist || []).map((w: any) => ({ ...w, symbol: String(getVal(w, 'symbol') || ''), price: Number(getVal(w, 'price') || 0) })).filter((w: any) => w.symbol),
+      watchlist: (data.watchlist || []).map((w: any) => ({ ...w, symbol: String(getVal(w, 'symbol') || '') })).filter((w: any) => w.symbol),
       users: formattedUsers,
-      logs: (data.logs || []).map((l: any) => ({ ...l, type: (getVal(l, 'type') || 'SYSTEM').toUpperCase() })),
+      logs: (data.logs || []).map((l: any) => ({
+        timestamp: getVal(l, 'timestamp') || new Date().toISOString(),
+        user: getVal(l, 'user') || 'System',
+        action: getVal(l, 'action') || 'N/A',
+        details: getVal(l, 'details') || '',
+        type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
+      })),
       messages: formattedMessages
     };
   } catch (error) {
@@ -153,7 +144,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
   }
 };
 
-export const updateSheetData = async (target: string, action: string, payload: any, id?: string) => {
+export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users' | 'logs' | 'messages', action: string, payload: any, id?: string) => {
   if (!SCRIPT_URL) return false;
   try {
     await fetch(SCRIPT_URL, {

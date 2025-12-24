@@ -35,10 +35,18 @@ export interface TradeSignal {
   pnlPoints?: number;
   pnlRupees?: number;
   comment?: string;
-  // New Institutional Fields
   quantity?: number;
   cmp?: number;
   isBTST?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  userId: string;
+  senderName: string;
+  text: string;
+  timestamp: string;
+  isAdminReply: boolean;
 }
 
 export interface User {
@@ -57,15 +65,6 @@ export interface LogEntry {
   action: string;
   details: string;
   type: 'SECURITY' | 'TRADE' | 'USER' | 'SYSTEM';
-}
-
-export interface ChatMessage {
-  id: string;
-  userId: string;
-  senderName: string;
-  text: string;
-  timestamp: string;
-  isAdminReply: boolean;
 }
 
 export interface PnLStats {
