@@ -47,8 +47,10 @@ const getNum = (obj: any, key: string): number | undefined => {
 
 const isTrue = (val: any): boolean => {
   if (val === true) return true;
+  if (typeof val === 'number') return val === 1;
   const s = String(val || '').toUpperCase().trim();
-  return s === 'TRUE' || s === 'YES' || s === '1' || s === 'Y';
+  // Expanded to handle "BTST" as a truthy value itself if placed in a boolean column
+  return ['TRUE', 'YES', '1', 'Y', 'BTST', 'B.T.S.T', 'OVERNIGHT'].includes(s);
 };
 
 const normalizeStatus = (val: any): TradeStatus => {
@@ -82,6 +84,9 @@ const parseSignalRow = (s: any, index: number): TradeSignal | null => {
     });
   }
 
+  // Look for BTST flag in multiple common column naming conventions
+  const btstVal = getVal(s, 'isBTST') || getVal(s, 'btst') || getVal(s, 'is_btst') || getVal(s, 'type');
+
   return {
     ...s,
     id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
@@ -100,7 +105,7 @@ const parseSignalRow = (s: any, index: number): TradeSignal | null => {
     timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
     quantity: getNum(s, 'quantity') || 0,
     cmp: getNum(s, 'cmp') || 0,
-    isBTST: isTrue(getVal(s, 'btst'))
+    isBTST: isTrue(btstVal)
   };
 };
 

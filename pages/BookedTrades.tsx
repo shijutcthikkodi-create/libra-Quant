@@ -20,8 +20,8 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
   granularHighlights,
   onSignalUpdate
 }) => {
-  // Normalized Index list for robust matching
-  const INDEX_MATCHERS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'MIDCAPNIFTY', 'SENSEX', 'BANKEX', 'NIFTY50', 'BANKNIFTY'];
+  // Broader Index matchers to catch "NIFTY BANK", "BANK NIFTY", etc.
+  const INDEX_MATCHERS = ['NIFTY', 'BANK', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
 
   const getISTDateGroup = (date: Date) => {
     if (!date || isNaN(date.getTime())) return 'UNKNOWN DATE';
@@ -86,17 +86,16 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push(s);
 
-      // Robust P&L Calculation: prioritized Rupee value, fallback to points * qty.
-      // If quantity is 0 or missing, we assume 1 for the sake of the stats display if points exist.
-      const qty = (s.quantity && s.quantity > 0) ? s.quantity : 1;
-      const pnl = s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * qty;
+      // Robust P&L Calculation: prioritize Rupee value, fallback to points * qty
+      // Even if quantity is 0 or null, we assume 1 to reflect the trade's performance in stats
+      const effectiveQty = (s.quantity && s.quantity > 0) ? s.quantity : 1;
+      const pnl = s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * effectiveQty;
       totalNet += pnl;
 
-      // Robust Index Detection: strip spaces and check against index keys
-      const instRaw = (s.instrument || '').toUpperCase().replace(/\s+/g, '');
+      // Robust Index Detection: check instrument name for keywords
+      const instRaw = (s.instrument || '').toUpperCase();
       const isIndex = INDEX_MATCHERS.some(idx => instRaw.includes(idx));
 
-      // Use the boolean flag directly
       if (s.isBTST) {
         if (isIndex) indexBTST += pnl;
         else stockBTST += pnl;
