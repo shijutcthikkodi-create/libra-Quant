@@ -49,6 +49,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pendingMessages, setPendingMessages] = useState<(ChatMessage & { status?: 'sending' | 'failed' })[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
@@ -60,7 +61,6 @@ const App: React.FC = () => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
-  const lastSentMessageIdRef = useRef<string | null>(null);
 
   const playLongBeep = useCallback((isCritical = false) => {
     if (!soundEnabled) return;
@@ -146,7 +146,6 @@ const App: React.FC = () => {
           // Check for new messages
           if (data.messages.length > prevMessagesCountRef.current) {
             const lastMsg = data.messages[data.messages.length - 1];
-            // Only trigger alert if the message is from support (for client) or ANY new message for admin
             if (user?.isAdmin || (lastMsg.userId === user?.id && lastMsg.isAdminReply)) {
                 hasAnyChanges = true;
             }
@@ -175,17 +174,15 @@ const App: React.FC = () => {
         setWatchlist([...data.watchlist]);
         setUsers([...data.users]);
         setLogs([...(data.logs || [])]);
-        
-        // Merge local messages with server messages to avoid flickers
-        setMessages(prev => {
-          const merged = [...data.messages];
-          const lastLocal = prev.find(m => m.id === lastSentMessageIdRef.current);
-          if (lastLocal && !merged.find(m => m.text === lastLocal.text && m.userId === lastLocal.userId)) {
-            merged.push(lastLocal);
-          }
-          return merged;
-        });
-        
+        setMessages([...data.messages]);
+
+        // Cleanup pending messages that are now on the server
+        setPendingMessages(currentPending => 
+          currentPending.filter(pending => 
+            !data.messages.some(m => m.text === pending.text && m.userId === pending.userId && m.timestamp === pending.timestamp)
+          )
+        );
+
         setConnectionStatus('connected');
       }
     } catch (err: any) {
@@ -208,24 +205,28 @@ const App: React.FC = () => {
   const handleSendMessage = useCallback(async (text: string, isAdminReply = false, targetUserId?: string) => {
     if (!user) return false;
     
-    const messageId = Date.now().toString();
-    const newMessage: ChatMessage = {
-      id: messageId,
+    const tempId = `TEMP-${Date.now()}`;
+    const newMessage: ChatMessage & { status: 'sending' | 'failed' } = {
+      id: tempId,
       userId: targetUserId || user.id,
       senderName: isAdminReply ? 'Libra Support' : user.name,
       text,
       timestamp: new Date().toISOString(),
-      isAdminReply
+      isAdminReply,
+      status: 'sending'
     };
 
-    // Optimistic Update
-    setMessages(prev => [...prev, newMessage]);
-    lastSentMessageIdRef.current = messageId;
+    // Optimistic Update: Add to pending queue
+    setPendingMessages(prev => [...prev, newMessage]);
 
     const success = await updateSheetData('messages', 'ADD', newMessage);
+    
     if (success) {
-      // Keep it in local state until next poll replaces it
-      prevMessagesCountRef.current += 1;
+      // Keep it in pending until the next sync picks it up from the server
+      setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: undefined } : m));
+    } else {
+      // Mark as failed in local UI
+      setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed' } : m));
     }
     return success;
   }, [user]);
@@ -301,8 +302,13 @@ const App: React.FC = () => {
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} messages={messages} onSendMessage={handleSendMessage} onNavigate={setPage} />}
 
-      {/* Universal Instant Chat for both Client and Admin */}
-      <ChatWidget messages={messages} onSendMessage={handleSendMessage} user={user} users={users} />
+      {/* Pass both persistent messages and pending local messages to the widget */}
+      <ChatWidget 
+        messages={[...messages, ...pendingMessages]} 
+        onSendMessage={handleSendMessage} 
+        user={user} 
+        users={users} 
+      />
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>
