@@ -1,7 +1,6 @@
 
 import { TradeSignal, WatchlistItem, User, TradeStatus, LogEntry, ChatMessage } from '../types';
 
-// Updated URL for user's specific Google Apps Script deployment
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx1foRQ4bUbGKW160-QI8eKK5TXusla8ztcL_pd7eFcOFlas_M-uXrbQ7XQWDMcZH0p/exec';
 
 export interface SheetData {
@@ -40,19 +39,12 @@ const formatToIST = (input: any): string => {
   return String(input || '--');
 };
 
-/**
- * Enhanced getVal with fuzzy matching for common Google Sheet header variations
- */
 const getVal = (obj: any, targetKey: string): any => {
   if (!obj || typeof obj !== 'object') return undefined;
   const normalizedTarget = targetKey.toLowerCase().replace(/\s|_|-/g, '');
-  
-  // Direct check first
   if (obj[targetKey] !== undefined) return obj[targetKey];
-
   for (const key in obj) {
-    const normalizedKey = key.toLowerCase().replace(/\s|_|-/g, '');
-    if (normalizedKey === normalizedTarget) return obj[key];
+    if (key.toLowerCase().replace(/\s|_|-/g, '') === normalizedTarget) return obj[key];
   }
   return undefined;
 };
@@ -71,7 +63,6 @@ const normalizeStatus = (val: any): TradeStatus => {
 const parseSignalRow = (s: any, index: number): TradeSignal | null => {
   const instrument = String(getVal(s, 'instrument') || '').trim();
   const symbol = String(getVal(s, 'symbol') || '').trim();
-
   if (!instrument || !symbol) return null;
 
   const rawTargets = getVal(s, 'targets');
@@ -80,8 +71,6 @@ const parseSignalRow = (s: any, index: number): TradeSignal | null => {
     parsedTargets = rawTargets.split(',').map(t => parseFloat(t.trim())).filter(n => !isNaN(n));
   } else if (Array.isArray(rawTargets)) {
     parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
-  } else if (typeof rawTargets === 'number' && !isNaN(rawTargets)) {
-    parsedTargets = [rawTargets];
   }
   
   if (parsedTargets.length === 0) {
@@ -90,8 +79,6 @@ const parseSignalRow = (s: any, index: number): TradeSignal | null => {
       if (!isNaN(val) && val !== 0) parsedTargets.push(val);
     });
   }
-
-  const btstVal = String(getVal(s, 'btst') || '').toUpperCase();
 
   return {
     ...s,
@@ -109,126 +96,64 @@ const parseSignalRow = (s: any, index: number): TradeSignal | null => {
     trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
     comment: String(getVal(s, 'comment') || ''),
     timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
-    lastTradedTimestamp: getVal(s, 'lastTradedTimestamp') || getVal(s, 'lastUpdated') || null,
     quantity: Number(getVal(s, 'quantity') || 0),
     cmp: Number(getVal(s, 'cmp') || 0),
-    isBTST: btstVal === 'TRUE' || btstVal === 'YES' || btstVal === 'BTST'
+    isBTST: String(getVal(s, 'btst') || '').toUpperCase() === 'TRUE'
   };
 };
 
 export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => {
   if (!SCRIPT_URL) return null;
-  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000); 
 
   try {
     const v = Date.now();
-    const response = await fetch(`${SCRIPT_URL}?v=${v}`, { 
-      method: 'GET', 
-      mode: 'cors', 
-      credentials: 'omit', 
-      redirect: 'follow', 
-      signal: controller.signal
-    });
-    
+    const response = await fetch(`${SCRIPT_URL}?v=${v}`, { method: 'GET', mode: 'cors', signal: controller.signal });
     clearTimeout(timeoutId);
     if (!response.ok) throw new Error(`HTTP_${response.status}`);
 
-    const rawText = await response.text();
-    if (!rawText || rawText.length < 2) throw new Error("EMPTY_RESPONSE");
-
-    const data = robustParseJson(rawText);
+    const data = robustParseJson(await response.text());
     
-    const formattedSignals = (data.signals || [])
-      .map((s: any, index: number) => ({ ...parseSignalRow(s, index), sheetIndex: index }))
-      .filter((s: any) => s !== null);
-
-    const formattedHistory = (data.history || [])
-      .map((s: any, index: number) => parseSignalRow(s, index))
-      .filter((s: any) => s !== null);
-
-    const formattedWatch = (data.watchlist || [])
-      .map((w: any) => {
-        const symbol = String(getVal(w, 'symbol') || '').trim();
-        if (!symbol) return null;
-        return {
-          ...w,
-          symbol,
-          price: Number(getVal(w, 'price') || 0),
-          change: Number(getVal(w, 'change') || 0),
-          isPositive: Number(getVal(w, 'change') || 0) >= 0,
-          lastUpdated: formatToIST(getVal(w, 'lastUpdated'))
-        };
-      })
-      .filter((w: any) => w !== null);
-
     const formattedUsers = (data.users || []).map((u: any) => {
-      const expiry = getVal(u, 'expiryDate') || getVal(u, 'expiry');
       const phone = String(getVal(u, 'phoneNumber') || '');
-      const id = String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || phone;
-      
       return {
         ...u,
-        id,
+        id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || phone,
         name: String(getVal(u, 'name') || 'Client'),
         phoneNumber: phone,
-        password: String(getVal(u, 'password') || ''),
-        expiryDate: expiry ? String(expiry) : '',
+        expiryDate: String(getVal(u, 'expiryDate') || ''),
         isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
-        deviceId: getVal(u, 'deviceId') ? String(getVal(u, 'deviceId')).trim() : null
+        deviceId: getVal(u, 'deviceId') ? String(getVal(u, 'deviceId')) : null
       };
     });
 
-    const formattedLogs = (data.logs || []).map((l: any) => ({
-      timestamp: getVal(l, 'timestamp') || new Date().toISOString(),
-      user: getVal(l, 'user') || 'System',
-      action: getVal(l, 'action') || 'N/A',
-      details: getVal(l, 'details') || '',
-      type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
-    }));
-
-    const formattedMessages = (data.messages || []).map((m: any) => {
-      // Very robust ID check for messages
-      const userId = String(
-        getVal(m, 'userId') || 
-        getVal(m, 'uid') || 
-        getVal(m, 'user') || 
-        getVal(m, 'client') || 
-        getVal(m, 'phone') || 
-        getVal(m, 'sender') ||
-        ''
-      ).trim();
-
-      return {
-        id: String(getVal(m, 'id') || Date.now() + Math.random()),
-        userId,
-        senderName: String(getVal(m, 'senderName') || getVal(m, 'name') || '').trim(),
-        text: String(getVal(m, 'text') || getVal(m, 'message') || '').trim(),
-        timestamp: String(getVal(m, 'timestamp') || getVal(m, 'time') || new Date().toISOString()),
-        isAdminReply: String(getVal(m, 'isAdminReply') || getVal(m, 'is_admin') || 'false').toLowerCase() === 'true'
-      };
-    });
+    const formattedMessages = (data.messages || [])
+      .map((m: any) => ({
+        id: String(getVal(m, 'id') || Math.random()),
+        userId: String(getVal(m, 'userId') || getVal(m, 'uid') || '').trim(),
+        senderName: String(getVal(m, 'senderName') || 'Subscriber'),
+        text: String(getVal(m, 'text') || '').trim(),
+        timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
+        isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
+      }))
+      .filter((m: any) => m.userId && m.text);
 
     return { 
-      signals: formattedSignals as (TradeSignal & { sheetIndex: number })[], 
-      history: formattedHistory as TradeSignal[],
-      watchlist: formattedWatch, 
+      signals: (data.signals || []).map((s: any, i: number) => ({ ...parseSignalRow(s, i), sheetIndex: i })).filter((s: any) => s !== null),
+      history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i)).filter((s: any) => s !== null),
+      watchlist: (data.watchlist || []).map((w: any) => ({ ...w, symbol: String(getVal(w, 'symbol') || ''), price: Number(getVal(w, 'price') || 0) })).filter((w: any) => w.symbol),
       users: formattedUsers,
-      logs: formattedLogs,
-      messages: formattedMessages.filter(m => m.userId && m.text) // Only valid messages
+      logs: (data.logs || []).map((l: any) => ({ ...l, type: (getVal(l, 'type') || 'SYSTEM').toUpperCase() })),
+      messages: formattedMessages
     };
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-    if (retries > 0) { 
-        await new Promise(res => setTimeout(res, (3 - retries) * 3000)); 
-        return fetchSheetData(retries - 1); 
-    }
+  } catch (error) {
+    if (retries > 0) return fetchSheetData(retries - 1);
     throw error;
   }
 };
 
-export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users' | 'logs' | 'messages', action: 'ADD' | 'UPDATE_SIGNAL' | 'UPDATE_USER' | 'DELETE_USER', payload: any, id?: string) => {
+export const updateSheetData = async (target: string, action: string, payload: any, id?: string) => {
   if (!SCRIPT_URL) return false;
   try {
     await fetch(SCRIPT_URL, {
