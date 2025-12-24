@@ -4,7 +4,7 @@ import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry, Ch
 import { 
   Trash2, Edit2, X, Radio, UserCheck, RefreshCw, Smartphone, Search, 
   History, Zap, MessageSquare, Send, Loader2, AlertTriangle, 
-  ChevronLeft, Clock 
+  ChevronLeft, Clock, ShieldCheck, Activity, Terminal, Filter, Download
 } from 'lucide-react';
 import { updateSheetData } from '../services/googleSheetsService';
 
@@ -25,6 +25,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   const [activeTab, setActiveTab] = useState<'SIGNALS' | 'CLIENTS' | 'LOGS' | 'MESSAGES'>('SIGNALS');
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [logFilter, setLogFilter] = useState<'ALL' | 'SECURITY' | 'TRADE' | 'SYSTEM'>('ALL');
   const [activeChatUserId, setActiveChatUserId] = useState<string | null>(null);
   const [adminChatText, setAdminChatText] = useState('');
   const [isSendingMsg, setIsSendingMsg] = useState(false);
@@ -36,6 +37,23 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
       (u.phoneNumber || '').includes(searchQuery)
     );
   }, [users, searchQuery]);
+
+  const filteredLogs = useMemo(() => {
+    let base = [...logs];
+    if (logFilter !== 'ALL') {
+      base = base.filter(l => l.type === logFilter);
+    }
+    return base.reverse();
+  }, [logs, logFilter]);
+
+  const logStats = useMemo(() => {
+    return {
+      total: logs.length,
+      security: logs.filter(l => l.type === 'SECURITY').length,
+      trade: logs.filter(l => l.type === 'TRADE').length,
+      system: logs.filter(l => l.type === 'SYSTEM').length
+    };
+  }, [logs]);
 
   const getExpiryStatus = (expiryStr: string) => {
     if (!expiryStr) return { label: 'NO EXPIRY', color: 'text-slate-500', bg: 'bg-slate-500/10', border: 'border-slate-800' };
@@ -117,7 +135,17 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     setIsSaving(true);
     const payload = { ...signal, ...updates, lastTradedTimestamp: new Date().toISOString() };
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', payload, signal.id);
-    if (success) onUpdateSignals(signals.map(s => s.id === signal.id ? (payload as TradeSignal) : s));
+    if (success) {
+      onUpdateSignals(signals.map(s => s.id === signal.id ? (payload as TradeSignal) : s));
+      // Auditable Log Data
+      await updateSheetData('logs', 'ADD', {
+        timestamp: new Date().toISOString(),
+        user: 'ADMIN',
+        action: `SIGNAL_${actionLabel}`,
+        details: `${signal.instrument} ${signal.symbol} ${signal.type}: Status ${updates.status || 'Updated'}`,
+        type: 'TRADE'
+      });
+    }
     setIsSaving(false);
   };
 
@@ -142,6 +170,14 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
     const success = await updateSheetData('signals', 'ADD', newSignal);
     if (success) {
       onUpdateSignals([newSignal, ...signals]);
+      // Auditable Log Data
+      await updateSheetData('logs', 'ADD', {
+        timestamp: new Date().toISOString(),
+        user: 'ADMIN',
+        action: 'SIGNAL_BROADCAST',
+        details: `NEW: ${newSignal.instrument} ${newSignal.symbol} ${newSignal.type} @ ${newSignal.entryPrice.toFixed(2)}`,
+        type: 'TRADE'
+      });
       setIsAddingSignal(false);
       onNavigate('dashboard');
     }
@@ -160,7 +196,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
               { id: 'SIGNALS', icon: Radio, label: 'Calls' },
               { id: 'MESSAGES', icon: MessageSquare, label: 'Threads' },
               { id: 'CLIENTS', icon: UserCheck, label: 'Subscribers' },
-              { id: 'LOGS', icon: History, label: 'Logs' }
+              { id: 'LOGS', icon: History, label: 'Audit Trail' }
             ].map((tab) => (
               <button 
                   key={tab.id}
@@ -354,43 +390,97 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
       )}
 
       {activeTab === 'LOGS' && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-           <div className="p-5 border-b border-slate-800 bg-slate-800/10 flex items-center justify-between">
-              <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center">
-                  <History size={18} className="mr-3 text-purple-500" /> System Audit Trail
-              </h3>
+        <div className="space-y-4">
+           {/* LOG STATS PANEL */}
+           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                 <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest mb-1">Total Events</p>
+                 <p className="text-xl font-mono font-black text-white">{logStats.total}</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                 <p className="text-[9px] text-rose-500 font-black uppercase tracking-widest mb-1">Security Alerts</p>
+                 <p className="text-xl font-mono font-black text-rose-400">{logStats.security}</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                 <p className="text-[9px] text-blue-500 font-black uppercase tracking-widest mb-1">Trade Actions</p>
+                 <p className="text-xl font-mono font-black text-blue-400">{logStats.trade}</p>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                 <p className="text-[9px] text-emerald-500 font-black uppercase tracking-widest mb-1">System Status</p>
+                 <p className="text-xl font-mono font-black text-emerald-400">{logStats.system}</p>
+              </div>
            </div>
-           <div className="max-h-[500px] overflow-y-auto">
-              <table className="w-full text-left text-[10px]">
-                  <thead className="bg-slate-950/80 text-slate-500 font-black uppercase text-[9px] tracking-widest border-b border-slate-800 sticky top-0">
-                      <tr>
-                          <th className="p-4">Time (IST)</th>
-                          <th className="p-4">User</th>
-                          <th className="p-4">Action</th>
-                          <th className="p-4 pr-6">Activity Metadata</th>
-                      </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                      {(logs || []).length > 0 ? [...logs].reverse().map((log, idx) => (
-                          <tr key={idx} className="hover:bg-slate-800/5 transition-colors">
-                              <td className="p-4 font-mono text-slate-500 whitespace-nowrap">{new Date(log.timestamp).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, day: '2-digit', month: 'short' })}</td>
-                              <td className="p-4 font-black text-white">{log.user}</td>
-                              <td className="p-4">
-                                <span className={`px-2 py-0.5 rounded-full text-[8px] font-black border ${
-                                  log.action.includes('LOGIN') ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' : 
-                                  log.action.includes('DEVICE') ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' :
-                                  'bg-slate-800 text-slate-400 border-slate-700'
-                                }`}>
-                                  {log.action}
-                                </span>
-                              </td>
-                              <td className="p-4 pr-6 text-slate-400 font-mono text-[9px] break-all">
-                                {log.details || '--'}
-                              </td>
-                          </tr>
-                      )) : <tr><td colSpan={4} className="p-20 text-center text-slate-600 uppercase font-black tracking-widest opacity-20">Audit Trail is Empty</td></tr>}
-                  </tbody>
-              </table>
+
+           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
+              <div className="p-4 border-b border-slate-800 bg-slate-800/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                 <div className="flex items-center">
+                    <History size={18} className="mr-3 text-purple-500" />
+                    <h3 className="text-xs font-black text-white uppercase tracking-widest">Perfect Audit Trail</h3>
+                 </div>
+                 <div className="flex items-center space-x-2 overflow-x-auto">
+                    {(['ALL', 'SECURITY', 'TRADE', 'SYSTEM'] as const).map(type => (
+                       <button 
+                         key={type}
+                         onClick={() => setLogFilter(type)}
+                         className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter transition-all border ${logFilter === type ? 'bg-blue-600 text-white border-blue-500' : 'bg-slate-950 text-slate-500 border-slate-800 hover:text-slate-300'}`}
+                       >
+                         {type}
+                       </button>
+                    ))}
+                    <button className="p-2 text-slate-500 hover:text-white"><Download size={14} /></button>
+                 </div>
+              </div>
+              <div className="max-h-[500px] overflow-y-auto">
+                 <table className="w-full text-left text-[10px]">
+                     <thead className="bg-slate-950/80 text-slate-500 font-black uppercase text-[9px] tracking-widest border-b border-slate-800 sticky top-0 z-10">
+                         <tr>
+                             <th className="p-4">Time (IST)</th>
+                             <th className="p-4">Entity</th>
+                             <th className="p-4">Audit Category</th>
+                             <th className="p-4 pr-6">Activity Execution Details</th>
+                         </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-800">
+                         {filteredLogs.length > 0 ? filteredLogs.map((log, idx) => {
+                            const isSecurity = log.type === 'SECURITY';
+                            const isTrade = log.type === 'TRADE';
+                            const isSystem = log.type === 'SYSTEM';
+
+                            return (
+                             <tr key={idx} className={`hover:bg-slate-800/20 transition-colors ${isSecurity ? 'bg-rose-500/5' : ''}`}>
+                                 <td className="p-4 font-mono text-slate-500 whitespace-nowrap">
+                                    <div className="flex items-center space-x-2">
+                                       <Clock size={10} />
+                                       <span>{new Date(log.timestamp).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, day: '2-digit', month: 'short' })}</span>
+                                    </div>
+                                 </td>
+                                 <td className="p-4">
+                                    <div className="flex items-center space-x-2">
+                                       <UserCheck size={12} className="text-slate-600" />
+                                       <span className="font-black text-white">{log.user}</span>
+                                    </div>
+                                 </td>
+                                 <td className="p-4">
+                                   <span className={`px-2 py-0.5 rounded-full text-[8px] font-black border flex items-center w-fit space-x-1.5 ${
+                                     isSecurity ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : 
+                                     isTrade ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' :
+                                     'bg-slate-800 text-slate-400 border-slate-700'
+                                   }`}>
+                                     {isSecurity ? <ShieldCheck size={8} /> : isTrade ? <Activity size={8} /> : <Terminal size={8} />}
+                                     <span>{log.action}</span>
+                                   </span>
+                                 </td>
+                                 <td className="p-4 pr-6 text-slate-400 font-mono text-[9px] leading-relaxed">
+                                   <div className="bg-slate-950/50 p-2 rounded border border-slate-800/50">
+                                      {log.details || 'NO_METADATA_AVAILABLE'}
+                                   </div>
+                                 </td>
+                             </tr>
+                            );
+                         }) : <tr><td colSpan={4} className="p-20 text-center text-slate-600 uppercase font-black tracking-widest opacity-20">Audit Trail is Empty</td></tr>}
+                     </tbody>
+                 </table>
+              </div>
            </div>
         </div>
       )}
