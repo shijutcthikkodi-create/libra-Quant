@@ -143,10 +143,18 @@ const App: React.FC = () => {
             if (diff.size > 0) { currentHighlights[sym] = diff; hasAnyChanges = true; }
           });
 
-          // Check for new messages
+          // Improved Message Sync Check
           if (data.messages.length > prevMessagesCountRef.current) {
-            const lastMsg = data.messages[data.messages.length - 1];
-            if (user?.isAdmin || (lastMsg.userId === user?.id && lastMsg.isAdminReply)) {
+            // Check if any of the new messages require a notification
+            const newMessages = data.messages.slice(prevMessagesCountRef.current);
+            const adminId = user?.id || user?.phoneNumber;
+            
+            const deservesAlert = newMessages.some(m => {
+              if (user?.isAdmin) return !m.isAdminReply; // Admin alerts for client messages
+              return m.userId === adminId && m.isAdminReply; // Client alerts for admin replies
+            });
+
+            if (deservesAlert) {
                 hasAnyChanges = true;
             }
           }
@@ -176,10 +184,14 @@ const App: React.FC = () => {
         setLogs([...(data.logs || [])]);
         setMessages([...data.messages]);
 
-        // Cleanup pending messages that are now on the server
+        // Robust cleanup of pending messages
         setPendingMessages(currentPending => 
           currentPending.filter(pending => 
-            !data.messages.some(m => m.text === pending.text && m.userId === pending.userId && m.timestamp === pending.timestamp)
+            !data.messages.some(m => 
+              m.text === pending.text && 
+              m.userId === pending.userId && 
+              m.isAdminReply === pending.isAdminReply
+            )
           )
         );
 
@@ -208,7 +220,7 @@ const App: React.FC = () => {
     const tempId = `TEMP-${Date.now()}`;
     const newMessage: ChatMessage & { status: 'sending' | 'failed' } = {
       id: tempId,
-      userId: targetUserId || user.id,
+      userId: targetUserId || user.id || user.phoneNumber,
       senderName: isAdminReply ? 'Libra Support' : user.name,
       text,
       timestamp: new Date().toISOString(),
@@ -216,16 +228,13 @@ const App: React.FC = () => {
       status: 'sending'
     };
 
-    // Optimistic Update: Add to pending queue
     setPendingMessages(prev => [...prev, newMessage]);
 
     const success = await updateSheetData('messages', 'ADD', newMessage);
     
     if (success) {
-      // Keep it in pending until the next sync picks it up from the server
       setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: undefined } : m));
     } else {
-      // Mark as failed in local UI
       setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'failed' } : m));
     }
     return success;
@@ -302,7 +311,6 @@ const App: React.FC = () => {
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} messages={messages} onSendMessage={handleSendMessage} onNavigate={setPage} />}
 
-      {/* Pass both persistent messages and pending local messages to the widget */}
       <ChatWidget 
         messages={[...messages, ...pendingMessages]} 
         onSendMessage={handleSendMessage} 

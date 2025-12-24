@@ -42,9 +42,9 @@ const formatToIST = (input: any): string => {
 
 const getVal = (obj: any, targetKey: string): any => {
   if (!obj || typeof obj !== 'object') return undefined;
-  const normalizedTarget = targetKey.toLowerCase().replace(/\s/g, '');
+  const normalizedTarget = targetKey.toLowerCase().replace(/\s|_/g, '');
   for (const key in obj) {
-    if (key.toLowerCase().replace(/\s/g, '') === normalizedTarget) {
+    if (key.toLowerCase().replace(/\s|_/g, '') === normalizedTarget) {
       return obj[key];
     }
   }
@@ -160,7 +160,6 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
     const formattedUsers = (data.users || []).map((u: any) => {
       const expiry = getVal(u, 'expiryDate') || getVal(u, 'expiry');
       const phone = String(getVal(u, 'phoneNumber') || '');
-      // Ensure ID is never truly empty, fallback to phone if necessary
       const id = String(getVal(u, 'id') || '').trim() || phone;
       
       return {
@@ -185,7 +184,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
 
     const formattedMessages = (data.messages || []).map((m: any) => ({
       id: String(getVal(m, 'id') || Date.now()),
-      userId: String(getVal(m, 'userId') || '').trim(),
+      userId: String(getVal(m, 'userId') || getVal(m, 'uid') || getVal(m, 'user_id') || '').trim(),
       senderName: String(getVal(m, 'senderName') || ''),
       text: String(getVal(m, 'text') || ''),
       timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
@@ -213,8 +212,6 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
 export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users' | 'logs' | 'messages', action: 'ADD' | 'UPDATE_SIGNAL' | 'UPDATE_USER' | 'DELETE_USER', payload: any, id?: string) => {
   if (!SCRIPT_URL) return false;
   try {
-    // For POST requests to GAS, we use no-cors to avoid preflight blocks
-    // This returns an opaque response, so we assume success if no error is thrown
     await fetch(SCRIPT_URL, {
       method: 'POST',
       mode: 'no-cors', 
