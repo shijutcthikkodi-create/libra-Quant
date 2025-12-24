@@ -40,13 +40,19 @@ const formatToIST = (input: any): string => {
   return String(input || '--');
 };
 
+/**
+ * Enhanced getVal with fuzzy matching for common Google Sheet header variations
+ */
 const getVal = (obj: any, targetKey: string): any => {
   if (!obj || typeof obj !== 'object') return undefined;
-  const normalizedTarget = targetKey.toLowerCase().replace(/\s|_/g, '');
+  const normalizedTarget = targetKey.toLowerCase().replace(/\s|_|-/g, '');
+  
+  // Direct check first
+  if (obj[targetKey] !== undefined) return obj[targetKey];
+
   for (const key in obj) {
-    if (key.toLowerCase().replace(/\s|_/g, '') === normalizedTarget) {
-      return obj[key];
-    }
+    const normalizedKey = key.toLowerCase().replace(/\s|_|-/g, '');
+    if (normalizedKey === normalizedTarget) return obj[key];
   }
   return undefined;
 };
@@ -160,7 +166,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
     const formattedUsers = (data.users || []).map((u: any) => {
       const expiry = getVal(u, 'expiryDate') || getVal(u, 'expiry');
       const phone = String(getVal(u, 'phoneNumber') || '');
-      const id = String(getVal(u, 'id') || '').trim() || phone;
+      const id = String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || phone;
       
       return {
         ...u,
@@ -182,14 +188,27 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
       type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
     }));
 
-    const formattedMessages = (data.messages || []).map((m: any) => ({
-      id: String(getVal(m, 'id') || Date.now()),
-      userId: String(getVal(m, 'userId') || getVal(m, 'uid') || getVal(m, 'user_id') || '').trim(),
-      senderName: String(getVal(m, 'senderName') || ''),
-      text: String(getVal(m, 'text') || ''),
-      timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
-      isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
-    }));
+    const formattedMessages = (data.messages || []).map((m: any) => {
+      // Very robust ID check for messages
+      const userId = String(
+        getVal(m, 'userId') || 
+        getVal(m, 'uid') || 
+        getVal(m, 'user') || 
+        getVal(m, 'client') || 
+        getVal(m, 'phone') || 
+        getVal(m, 'sender') ||
+        ''
+      ).trim();
+
+      return {
+        id: String(getVal(m, 'id') || Date.now() + Math.random()),
+        userId,
+        senderName: String(getVal(m, 'senderName') || getVal(m, 'name') || '').trim(),
+        text: String(getVal(m, 'text') || getVal(m, 'message') || '').trim(),
+        timestamp: String(getVal(m, 'timestamp') || getVal(m, 'time') || new Date().toISOString()),
+        isAdminReply: String(getVal(m, 'isAdminReply') || getVal(m, 'is_admin') || 'false').toLowerCase() === 'true'
+      };
+    });
 
     return { 
       signals: formattedSignals as (TradeSignal & { sheetIndex: number })[], 
@@ -197,7 +216,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
       watchlist: formattedWatch, 
       users: formattedUsers,
       logs: formattedLogs,
-      messages: formattedMessages
+      messages: formattedMessages.filter(m => m.userId && m.text) // Only valid messages
     };
   } catch (error: any) {
     clearTimeout(timeoutId);

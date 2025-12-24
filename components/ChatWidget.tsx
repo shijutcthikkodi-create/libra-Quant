@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { MessageSquare, Send, X, User, ShieldCheck, Loader2, ChevronLeft, Users, AlertCircle, Clock } from 'lucide-react';
+import { MessageSquare, Send, X, User as UserIcon, ShieldCheck, Loader2, ChevronLeft, Users, AlertCircle, Clock } from 'lucide-react';
 import { ChatMessage, User as UserType } from '../types';
 
 interface ChatWidgetProps {
@@ -18,11 +18,11 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = user.isAdmin;
-  const adminId = user.id || user.phoneNumber;
+  const adminId = (user.id || user.phoneNumber || '').trim();
 
-  // Consistent effective user ID for thread filtering
-  const effectiveUserId = user.id || user.phoneNumber;
-  const currentChatUserId = isAdmin ? selectedChatUserId : effectiveUserId;
+  // The "Effective User ID" is the owner of the thread. 
+  // For a client, it's their own ID. For an Admin, it's whoever they are currently chatting with.
+  const currentChatUserId = isAdmin ? selectedChatUserId : adminId;
 
   const filteredMessages = useMemo(() => {
     if (!currentChatUserId) return [];
@@ -31,18 +31,26 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   }, [messages, currentChatUserId]);
 
+  /**
+   * Admin Thread Discovery Logic:
+   * 1. Iterate through ALL messages.
+   * 2. Every unique userId (that isn't the admin's personal ID) is a thread.
+   */
   const adminThreads = useMemo(() => {
     if (!isAdmin) return [];
-    const threadMap = new Map<string, { lastMsg: ChatMessage; user: UserType | undefined }>();
+    
+    const threadMap = new Map<string, { lastMsg: ChatMessage; userMeta: UserType | undefined }>();
     
     messages.forEach(m => {
-      // Exclude admin's own potential self-chat
-      if (m.userId === adminId) return;
-      if (!m.userId) return;
+      const mid = (m.userId || '').trim();
+      if (!mid || mid === adminId) return; // Ignore admin-only system messages or empty IDs
 
-      const u = users.find(usr => usr.id === m.userId || usr.phoneNumber === m.userId);
-      if (!threadMap.has(m.userId) || new Date(m.timestamp) > new Date(threadMap.get(m.userId)!.lastMsg.timestamp)) {
-        threadMap.set(m.userId, { lastMsg: m, user: u });
+      // Try to find matching user metadata if available
+      const u = users.find(usr => (usr.id || '').trim() === mid || (usr.phoneNumber || '').trim() === mid);
+      
+      const existing = threadMap.get(mid);
+      if (!existing || new Date(m.timestamp) > new Date(existing.lastMsg.timestamp)) {
+        threadMap.set(mid, { lastMsg: m, userMeta: u });
       }
     });
 
@@ -59,7 +67,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
 
   useEffect(() => {
     if (isOpen && currentChatUserId) {
-        const timer = setTimeout(scrollToBottom, 150);
+        const timer = setTimeout(scrollToBottom, 200);
         return () => clearTimeout(timer);
     }
   }, [filteredMessages.length, isOpen, currentChatUserId]);
@@ -78,8 +86,10 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
 
   const hasNewClientMessages = useMemo(() => {
     if (!isAdmin) return false;
-    // Simple logic: if the last message in any thread is NOT an admin reply
-    return messages.some(m => !m.isAdminReply && m.userId !== adminId);
+    // Notify admin if the absolute last message in the entire pool is from a client
+    if (messages.length === 0) return false;
+    const sorted = [...messages].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return sorted[0] && !sorted[0].isAdminReply && sorted[0].userId !== adminId;
   }, [messages, isAdmin, adminId]);
 
   const hasNewSupportMessages = useMemo(() => {
@@ -89,9 +99,13 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
     return last.isAdminReply;
   }, [filteredMessages, isAdmin]);
 
-  const chatTitle = isAdmin 
-    ? (selectedChatUserId ? (users.find(u => u.id === selectedChatUserId || u.phoneNumber === selectedChatUserId)?.name || 'Client Chat') : 'All Threads')
-    : 'Libra Support';
+  const getChatTitle = () => {
+    if (!isAdmin) return 'Libra Support';
+    if (!selectedChatUserId) return 'Client Enquiries';
+    
+    const u = users.find(u => u.id === selectedChatUserId || u.phoneNumber === selectedChatUserId);
+    return u?.name || `Subscriber ${selectedChatUserId.slice(-4)}`;
+  };
 
   return (
     <div className="fixed bottom-24 md:bottom-20 right-4 z-[120] flex flex-col items-end pointer-events-auto">
@@ -99,24 +113,24 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
         <div className="mb-4 w-[88vw] md:w-96 h-[520px] max-h-[75vh] bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
           {/* Header */}
           <div className="p-4 bg-slate-800 border-b border-slate-700 flex items-center justify-between shadow-lg relative z-10">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-3 overflow-hidden">
               {isAdmin && selectedChatUserId && (
                 <button onClick={() => setSelectedChatUserId(null)} className="p-1 text-slate-400 hover:text-white transition-colors mr-1">
                   <ChevronLeft size={20} />
                 </button>
               )}
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center border shadow-inner ${isAdmin ? 'bg-purple-600/20 text-purple-400 border-purple-500/20' : 'bg-blue-600/20 text-blue-500 border-blue-500/20'}`}>
+              <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center border shadow-inner ${isAdmin ? 'bg-purple-600/20 text-purple-400 border-purple-500/20' : 'bg-blue-600/20 text-blue-500 border-blue-500/20'}`}>
                 {isAdmin && !selectedChatUserId ? <Users size={20} /> : <ShieldCheck size={20} />}
               </div>
-              <div>
-                <h3 className="text-sm font-black text-white uppercase tracking-widest leading-none mb-1">{chatTitle}</h3>
+              <div className="truncate">
+                <h3 className="text-sm font-black text-white uppercase tracking-widest leading-none mb-1 truncate">{getChatTitle()}</h3>
                 <div className="flex items-center space-x-1.5">
                   <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_5px_rgba(16,185,129,1)]"></span>
-                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">{isAdmin ? 'Admin Helpdesk' : 'Support Active'}</span>
+                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">{isAdmin ? 'Admin Console' : 'Support Online'}</span>
                 </div>
               </div>
             </div>
-            <button onClick={() => setIsOpen(false)} className="p-1.5 text-slate-500 hover:text-white rounded-lg transition-colors">
+            <button onClick={() => setIsOpen(false)} className="p-1.5 text-slate-500 hover:text-white rounded-lg transition-colors ml-2">
               <X size={20} />
             </button>
           </div>
@@ -128,22 +142,22 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
               <div className="space-y-2">
                 {adminThreads.length === 0 ? (
                   <div className="h-64 flex flex-col items-center justify-center text-center p-6 opacity-30">
-                    <Users size={40} className="mb-3" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">No active client messages</p>
+                    <MessageSquare size={40} className="mb-3" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">No Client Threads Detected</p>
                   </div>
                 ) : (
                   adminThreads.map(([uid, data]) => (
                     <button 
                       key={uid}
                       onClick={() => setSelectedChatUserId(uid)}
-                      className={`w-full p-3 border rounded-xl flex items-center space-x-3 transition-all text-left group ${!data.lastMsg.isAdminReply ? 'bg-blue-600/10 border-blue-500/30 ring-1 ring-blue-500/20 shadow-lg' : 'bg-slate-900 border-slate-800 hover:border-slate-600'}`}
+                      className={`w-full p-3 border rounded-xl flex items-center space-x-3 transition-all text-left group ${!data.lastMsg.isAdminReply ? 'bg-blue-600/10 border-blue-500/40 ring-1 ring-blue-500/20 shadow-lg' : 'bg-slate-900 border-slate-800 hover:border-slate-600'}`}
                     >
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black transition-colors ${!data.lastMsg.isAdminReply ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500 group-hover:bg-slate-700'}`}>
-                        {data.user?.name.slice(0, 1).toUpperCase() || 'U'}
+                        {data.userMeta?.name.slice(0, 1).toUpperCase() || uid.slice(-1).toUpperCase()}
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <div className="flex justify-between items-center mb-0.5">
-                          <span className="text-[11px] font-black text-white truncate">{data.user?.name || `User: ${uid.slice(-4)}`}</span>
+                          <span className="text-[11px] font-black text-white truncate">{data.userMeta?.name || `Subscriber ${uid.slice(-4)}`}</span>
                           <span className="text-[8px] font-bold text-slate-600 whitespace-nowrap">{new Date(data.lastMsg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
                         <p className={`text-[10px] truncate leading-tight ${!data.lastMsg.isAdminReply ? 'text-blue-400 font-bold' : 'text-slate-500 italic'}`}>
@@ -164,7 +178,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
                   <div className="h-full flex flex-col items-center justify-center text-center p-6">
                     <MessageSquare size={40} className="text-slate-800 mb-4 opacity-20" />
                     <p className="text-[11px] text-slate-600 font-bold uppercase tracking-[0.2em] leading-relaxed whitespace-pre-wrap">
-                      {isAdmin ? 'NO CONVERSATION HISTORY\nFOUND FOR THIS USER' : 'INSTANT SUPPORT\nASK ABOUT CALLS OR P&L'}
+                      {isAdmin ? 'NO MESSAGES IN THIS THREAD' : 'START A CONVERSATION\nSUPPORT IS MONITORING'}
                     </p>
                   </div>
                 ) : (
@@ -191,7 +205,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ messages, onSendMessage, user, 
                           )}
                         </div>
                         <span className="text-[8px] font-bold text-slate-600 mt-1 uppercase tracking-tighter opacity-70">
-                          {msg.senderName} • {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {msg.isAdminReply ? 'Libra Support' : (msg.senderName || 'Subscriber')} • {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
                     );
