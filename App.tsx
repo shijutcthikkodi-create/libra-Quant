@@ -283,8 +283,8 @@ const App: React.FC = () => {
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} messages={messages} onSendMessage={handleSendMessage} onNavigate={setPage} />}
 
-      {/* Instant Chat for Clients */}
-      {!user.isAdmin && <ChatWidget messages={messages} onSendMessage={handleSendMessage} userId={user.id} />}
+      {/* Universal Instant Chat for both Client and Admin */}
+      <ChatWidget messages={messages} onSendMessage={handleSendMessage} user={user} users={users} />
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>
