@@ -7,7 +7,8 @@ import Stats from './pages/Stats';
 import Rules from './pages/Rules';
 import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
-import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry } from './types';
+import ChatWidget from './components/ChatWidget';
+import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
 import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
 import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff } from 'lucide-react';
@@ -47,6 +48,7 @@ const App: React.FC = () => {
   const [historySignals, setHistorySignals] = useState<TradeSignal[]>([]); 
   const [users, setUsers] = useState<User[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
@@ -54,6 +56,7 @@ const App: React.FC = () => {
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
   const prevWatchRef = useRef<WatchlistItem[]>([]);
+  const prevMessagesCountRef = useRef<number>(0);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
@@ -138,6 +141,14 @@ const App: React.FC = () => {
             }
             if (diff.size > 0) { currentHighlights[sym] = diff; hasAnyChanges = true; }
           });
+
+          // Check for new messages
+          if (data.messages.length > prevMessagesCountRef.current) {
+            const lastMsg = data.messages[data.messages.length - 1];
+            if (user?.isAdmin || (lastMsg.userId === user?.id && lastMsg.isAdminReply)) {
+                hasAnyChanges = true;
+            }
+          }
         }
 
         if (hasAnyChanges) {
@@ -155,12 +166,14 @@ const App: React.FC = () => {
         setLastSyncTime(nowStr);
         prevSignalsRef.current = [...data.signals];
         prevWatchRef.current = [...data.watchlist];
+        prevMessagesCountRef.current = data.messages.length;
         
         setSignals([...data.signals]);
         setHistorySignals([...(data.history || [])]);
         setWatchlist([...data.watchlist]);
         setUsers([...data.users]);
         setLogs([...(data.logs || [])]);
+        setMessages([...data.messages]);
         setConnectionStatus('connected');
       }
     } catch (err: any) {
@@ -168,7 +181,7 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playLongBeep]);
+  }, [playLongBeep, user]);
 
   const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', updatedSignal, updatedSignal.id);
@@ -179,6 +192,25 @@ const App: React.FC = () => {
     }
     return success;
   }, []);
+
+  const handleSendMessage = useCallback(async (text: string, isAdminReply = false, targetUserId?: string) => {
+    if (!user) return false;
+    const newMessage: ChatMessage = {
+      id: Date.now().toString(),
+      userId: targetUserId || user.id,
+      senderName: isAdminReply ? 'Libra Support' : user.name,
+      text,
+      timestamp: new Date().toISOString(),
+      isAdminReply
+    };
+
+    const success = await updateSheetData('messages', 'ADD', newMessage);
+    if (success) {
+      setMessages(prev => [...prev, newMessage]);
+      prevMessagesCountRef.current += 1;
+    }
+    return success;
+  }, [user]);
 
   useEffect(() => {
     sync(true);
@@ -249,7 +281,10 @@ const App: React.FC = () => {
       {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
-      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} onNavigate={setPage} />}
+      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} messages={messages} onSendMessage={handleSendMessage} onNavigate={setPage} />}
+
+      {/* Instant Chat for Clients */}
+      {!user.isAdmin && <ChatWidget messages={messages} onSendMessage={handleSendMessage} userId={user.id} />}
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>

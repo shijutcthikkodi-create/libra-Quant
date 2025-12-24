@@ -1,5 +1,5 @@
 
-import { TradeSignal, WatchlistItem, User, TradeStatus, LogEntry } from '../types';
+import { TradeSignal, WatchlistItem, User, TradeStatus, LogEntry, ChatMessage } from '../types';
 
 // Updated URL for user's specific Google Apps Script deployment
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx1foRQ4bUbGKW160-QI8eKK5TXusla8ztcL_pd7eFcOFlas_M-uXrbQ7XQWDMcZH0p/exec';
@@ -10,6 +10,7 @@ export interface SheetData {
   watchlist: WatchlistItem[];
   users: User[];
   logs: LogEntry[];
+  messages: ChatMessage[];
 }
 
 const robustParseJson = (text: string) => {
@@ -178,12 +179,22 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
       type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
     }));
 
+    const formattedMessages = (data.messages || []).map((m: any) => ({
+      id: String(getVal(m, 'id') || Date.now()),
+      userId: String(getVal(m, 'userId') || ''),
+      senderName: String(getVal(m, 'senderName') || ''),
+      text: String(getVal(m, 'text') || ''),
+      timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
+      isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
+    }));
+
     return { 
       signals: formattedSignals as (TradeSignal & { sheetIndex: number })[], 
       history: formattedHistory as TradeSignal[],
       watchlist: formattedWatch, 
       users: formattedUsers,
-      logs: formattedLogs
+      logs: formattedLogs,
+      messages: formattedMessages
     };
   } catch (error: any) {
     clearTimeout(timeoutId);
@@ -195,7 +206,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
   }
 };
 
-export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users' | 'logs', action: 'ADD' | 'UPDATE_SIGNAL' | 'UPDATE_USER' | 'DELETE_USER', payload: any, id?: string) => {
+export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users' | 'logs' | 'messages', action: 'ADD' | 'UPDATE_SIGNAL' | 'UPDATE_USER' | 'DELETE_USER', payload: any, id?: string) => {
   if (!SCRIPT_URL) return false;
   try {
     await fetch(SCRIPT_URL, {

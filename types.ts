@@ -59,6 +59,15 @@ export interface LogEntry {
   type: 'SECURITY' | 'TRADE' | 'USER' | 'SYSTEM';
 }
 
+export interface ChatMessage {
+  id: string;
+  userId: string;
+  senderName: string;
+  text: string;
+  timestamp: string;
+  isAdminReply: boolean;
+}
+
 export interface PnLStats {
   totalTrades: number;
   winRate: number;

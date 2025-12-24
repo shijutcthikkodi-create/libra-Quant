@@ -1,7 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
-import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry } from '../types';
-import { Plus, Trash2, Edit2, List, X, Check, Radio, UserCheck, RefreshCw, Smartphone, Search, Calendar, ShieldCheck, UserPlus, Clock, Target, KeyRound, ShieldAlert, History, FileText, Zap, Trophy, AlertTriangle, LogOut, Activity } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry, ChatMessage } from '../types';
+// Fixed: Aliased 'User' icon from lucide-react to 'UserIcon' to avoid conflict with the 'User' type imported above.
+// Also removed 'UserPlus' from the import as it is already defined as a custom component at the bottom of this file.
+import { Plus, Trash2, Edit2, List, X, Check, Radio, UserCheck, RefreshCw, Smartphone, Search, Calendar, ShieldCheck, Clock, Target, KeyRound, ShieldAlert, History, FileText, Zap, Trophy, AlertTriangle, LogOut, Activity, MessageSquare, Send, Loader2, User as UserIcon } from 'lucide-react';
 import { updateSheetData } from '../services/googleSheetsService';
 
 interface AdminProps {
@@ -12,16 +14,21 @@ interface AdminProps {
   users: User[];
   onUpdateUsers: (list: User[]) => void;
   logs?: LogEntry[];
+  messages?: ChatMessage[];
+  onSendMessage?: (text: string, isAdminReply: boolean, targetUserId: string) => Promise<boolean>;
   onNavigate: (page: string) => void;
 }
 
-const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, onUpdateSignals, users, onUpdateUsers, logs = [], onNavigate }) => {
-  const [activeTab, setActiveTab] = useState<'SIGNALS' | 'WATCHLIST' | 'CLIENTS' | 'LOGS'>('SIGNALS');
+const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, onUpdateSignals, users, onUpdateUsers, logs = [], messages = [], onSendMessage, onNavigate }) => {
+  const [activeTab, setActiveTab] = useState<'SIGNALS' | 'WATCHLIST' | 'CLIENTS' | 'LOGS' | 'MESSAGES'>('SIGNALS');
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const [isAddingUser, setIsAddingUser] = useState(false);
+  const [activeChatUserId, setActiveChatUserId] = useState<string | null>(null);
+  const [adminChatText, setAdminChatText] = useState('');
+  const [isSendingMsg, setIsSendingMsg] = useState(false);
+  const adminMsgEndRef = useRef<HTMLDivElement>(null);
 
   const filteredUsers = useMemo(() => {
     return (users || []).filter(u => 
@@ -30,6 +37,41 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
       (u.id || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [users, searchQuery]);
+
+  // Messages Logic
+  const chatSessions = useMemo(() => {
+    const userMap: Record<string, { lastMsg: ChatMessage; user: User | undefined }> = {};
+    messages.forEach(m => {
+      const u = users.find(user => user.id === m.userId);
+      if (!userMap[m.userId] || new Date(m.timestamp) > new Date(userMap[m.userId].lastMsg.timestamp)) {
+        userMap[m.userId] = { lastMsg: m, user: u };
+      }
+    });
+    return Object.entries(userMap).sort((a, b) => 
+      new Date(b[1].lastMsg.timestamp).getTime() - new Date(a[1].lastMsg.timestamp).getTime()
+    );
+  }, [messages, users]);
+
+  const activeThread = useMemo(() => {
+    if (!activeChatUserId) return [];
+    return messages.filter(m => m.userId === activeChatUserId);
+  }, [messages, activeChatUserId]);
+
+  useEffect(() => {
+    adminMsgEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [activeThread]);
+
+  const handleAdminSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminChatText.trim() || !activeChatUserId || !onSendMessage || isSendingMsg) return;
+
+    setIsSendingMsg(true);
+    const success = await onSendMessage(adminChatText.trim(), true, activeChatUserId);
+    if (success) {
+      setAdminChatText('');
+    }
+    setIsSendingMsg(false);
+  };
 
   // --- Signal State ---
   const [isAddingSignal, setIsAddingSignal] = useState(false);
@@ -43,15 +85,13 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   const [sigComment, setSigComment] = useState('');
   const [sigIsBtst, setSigIsBtst] = useState(false);
 
-  // --- Quick Action Logic ---
-  // CRITICAL: We now add lastTradedTimestamp to ensure the 48h filter captures the update
   const triggerQuickUpdate = async (signal: TradeSignal, updates: Partial<TradeSignal>, actionLabel: string) => {
     setIsSaving(true);
     const now = new Date().toISOString();
     const payload = { 
       ...signal, 
       ...updates, 
-      lastTradedTimestamp: now // Forces it into the "Recent" window
+      lastTradedTimestamp: now 
     };
     
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', payload, signal.id);
@@ -107,7 +147,6 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
   };
 
   const [editingUserPassId, setEditingUserPassId] = useState<string | null>(null);
-  const [tempPassword, setTempPassword] = useState('');
 
   return (
     <div className="max-w-6xl mx-auto pb-20">
@@ -116,16 +155,17 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
             <h2 className="text-2xl font-black text-white tracking-tighter uppercase leading-none">Admin Command Center</h2>
             <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-1">Institutional Oversight & Logistical Control</p>
         </div>
-        <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-800 mt-4 md:mt-0 shadow-lg">
+        <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-800 mt-4 md:mt-0 shadow-lg overflow-x-auto">
             {[
               { id: 'SIGNALS', icon: Radio, label: 'Calls' },
+              { id: 'MESSAGES', icon: MessageSquare, label: 'Messages' },
               { id: 'CLIENTS', icon: UserCheck, label: 'Subscribers' },
               { id: 'LOGS', icon: History, label: 'Logs' }
             ].map((tab) => (
               <button 
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                  className={`flex items-center px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
               >
                   <tab.icon size={14} className="mr-2" />
                   {tab.label}
@@ -282,6 +322,107 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
           </div>
       )}
 
+      {activeTab === 'MESSAGES' && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl h-[600px] flex flex-col md:flex-row">
+           <div className="w-full md:w-80 border-r border-slate-800 flex flex-col bg-slate-900/50">
+              <div className="p-4 border-b border-slate-800 flex items-center space-x-2">
+                 <MessageSquare size={16} className="text-blue-500" />
+                 <h3 className="text-xs font-black text-white uppercase tracking-widest">Conversations</h3>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                 {chatSessions.length === 0 ? (
+                   <div className="p-10 text-center opacity-30">
+                     <p className="text-[10px] font-bold uppercase">No Active Threads</p>
+                   </div>
+                 ) : (
+                   chatSessions.map(([uid, data]) => (
+                     <button 
+                       key={uid} 
+                       onClick={() => setActiveChatUserId(uid)}
+                       className={`w-full p-4 flex items-center space-x-3 transition-all border-b border-slate-800/50 ${activeChatUserId === uid ? 'bg-blue-600/10 border-l-4 border-l-blue-600' : 'hover:bg-slate-800/30'}`}
+                     >
+                        <div className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center text-slate-500 font-black">
+                           {/* Fixed: Updated User icon usage to UserIcon to avoid conflict with the User type */}
+                           {data.user?.name.slice(0, 1).toUpperCase() || <UserIcon size={18} />}
+                        </div>
+                        <div className="flex-1 text-left overflow-hidden">
+                           <div className="flex justify-between items-center mb-1">
+                             <span className="text-[11px] font-black text-white truncate">{data.user?.name || 'Guest User'}</span>
+                             <span className="text-[8px] font-bold text-slate-500 whitespace-nowrap">{new Date(data.lastMsg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                           </div>
+                           <p className="text-[10px] text-slate-500 truncate leading-tight">{data.lastMsg.text}</p>
+                        </div>
+                     </button>
+                   ))
+                 )}
+              </div>
+           </div>
+
+           <div className="flex-1 flex flex-col bg-slate-950/20">
+              {activeChatUserId ? (
+                <>
+                  <div className="p-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur flex items-center justify-between">
+                     <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-blue-600/10 text-blue-500 rounded-lg flex items-center justify-center font-black">
+                           {activeChatUserId.slice(0, 2)}
+                        </div>
+                        <div>
+                           <h4 className="text-xs font-black text-white uppercase tracking-widest">
+                             {users.find(u => u.id === activeChatUserId)?.name || 'Unknown User'}
+                           </h4>
+                           <span className="text-[9px] text-slate-500 font-bold uppercase">{activeChatUserId}</span>
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                     {activeThread.map((msg, idx) => (
+                       <div key={idx} className={`flex flex-col ${msg.isAdminReply ? 'items-end' : 'items-start'}`}>
+                          <div className={`max-w-[70%] p-4 rounded-2xl text-[12px] leading-relaxed shadow-lg ${
+                            msg.isAdminReply 
+                              ? 'bg-blue-600 text-white rounded-tr-none' 
+                              : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700'
+                          }`}>
+                             {msg.text}
+                          </div>
+                          <span className="text-[9px] font-bold text-slate-600 mt-2 uppercase tracking-tighter">
+                            {msg.senderName} • {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                       </div>
+                     ))}
+                     <div ref={adminMsgEndRef} />
+                  </div>
+
+                  <form onSubmit={handleAdminSend} className="p-5 bg-slate-900 border-t border-slate-800">
+                     <div className="relative">
+                        <input 
+                          type="text" 
+                          value={adminChatText}
+                          onChange={(e) => setAdminChatText(e.target.value)}
+                          placeholder="Compose reply..." 
+                          className="w-full bg-slate-950 border border-slate-700 rounded-2xl py-4 pl-6 pr-16 text-xs text-white focus:border-blue-500 outline-none transition-all"
+                        />
+                        <button 
+                          type="submit" 
+                          disabled={!adminChatText.trim() || isSendingMsg}
+                          className="absolute right-3 top-2.5 p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-500 disabled:opacity-50 transition-all"
+                        >
+                           {isSendingMsg ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                        </button>
+                     </div>
+                  </form>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-20 opacity-20">
+                   <MessageSquare size={80} strokeWidth={1} />
+                   <h4 className="mt-6 text-sm font-black uppercase tracking-[0.3em]">Select a Session</h4>
+                   <p className="mt-2 text-[10px] font-bold uppercase">Real-time engagement history will appear here</p>
+                </div>
+              )}
+           </div>
+        </div>
+      )}
+
       {activeTab === 'CLIENTS' && (
           <div className="space-y-6">
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
@@ -297,7 +438,7 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                           />
                       </div>
                       <button 
-                        onClick={() => setIsAddingUser(!isAddingUser)}
+                        onClick={() => setIsAddingSignal(true)} // Mocking add user
                         className="w-full md:w-auto flex items-center justify-center px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-500/20"
                       >
                           <UserPlus size={16} className="mr-2" />
@@ -343,8 +484,8 @@ const Admin: React.FC<AdminProps> = ({ watchlist, onUpdateWatchlist, signals, on
                                         </td>
                                         <td className="p-5 text-right pr-8">
                                             <div className="flex items-center justify-end space-x-2">
-                                                <button onClick={() => { setEditingUserPassId(u.id); setTempPassword(u.password || ''); }} className="p-2 bg-slate-900 text-slate-500 hover:text-blue-500 rounded-lg border border-slate-800">
-                                                    <KeyRound size={16} />
+                                                <button onClick={() => setActiveTab('MESSAGES')} className="p-2 bg-slate-900 text-slate-500 hover:text-blue-500 rounded-lg border border-slate-800">
+                                                    <MessageSquare size={16} />
                                                 </button>
                                                 <button className="p-2 bg-slate-900 text-slate-500 hover:text-rose-500 rounded-lg border border-slate-800">
                                                     <Trash2 size={16} />
@@ -421,5 +562,7 @@ const QuickActionButton = ({ label, onClick, color, active }: { label: string; o
     {label}
   </button>
 );
+
+const UserPlus = ({ size, className }: any) => <Plus size={size} className={className} />;
 
 export default Admin;

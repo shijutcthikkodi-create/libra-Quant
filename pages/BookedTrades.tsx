@@ -135,9 +135,9 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
                   Trade Ledger
                 </h2>
                 <div className="flex items-center space-x-2 mt-1">
-                   <div className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-black text-emerald-400 uppercase tracking-tighter flex items-center">
+                   <div className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-bold text-emerald-400 tracking-tighter flex items-center">
                       <Clock size={10} className="mr-1" />
-                      Strict 48H
+                      <i><b className="font-bold">Tension free trading</b></i>
                    </div>
                    <span className="text-slate-500 text-[9px] font-bold uppercase tracking-widest">Recent Performance</span>
                 </div>

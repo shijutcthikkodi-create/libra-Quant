@@ -102,7 +102,9 @@ const Dashboard: React.FC<DashboardProps> = ({
             <Activity size={24} className="mr-2 text-emerald-500" />
             Live Trading Floor
           </h2>
-          <p className="text-slate-400 text-sm font-mono uppercase tracking-tighter">Strict 48H Institutional Window</p>
+          <p className="text-slate-400 text-sm font-mono tracking-tighter">
+            <i className="font-bold">Tension free trading</i>
+          </p>
         </div>
         
         <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
