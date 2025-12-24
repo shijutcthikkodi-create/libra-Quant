@@ -38,6 +38,19 @@ const getVal = (obj: any, targetKey: string): any => {
   return undefined;
 };
 
+const getNum = (obj: any, key: string): number | undefined => {
+  const val = getVal(obj, key);
+  if (val === undefined || val === null || String(val).trim() === '') return undefined;
+  const n = Number(val);
+  return isNaN(n) ? undefined : n;
+};
+
+const isTrue = (val: any): boolean => {
+  if (val === true) return true;
+  const s = String(val || '').toUpperCase().trim();
+  return s === 'TRUE' || s === 'YES' || s === '1' || s === 'Y';
+};
+
 const normalizeStatus = (val: any): TradeStatus => {
   if (val === undefined || val === null || val === '') return TradeStatus.ACTIVE;
   const s = String(val).toUpperCase().trim();
@@ -74,20 +87,20 @@ const parseSignalRow = (s: any, index: number): TradeSignal | null => {
     id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
     instrument,
     symbol,
-    entryPrice: Number(getVal(s, 'entryPrice') || 0),
-    stopLoss: Number(getVal(s, 'stopLoss') || 0),
+    entryPrice: getNum(s, 'entryPrice') || 0,
+    stopLoss: getNum(s, 'stopLoss') || 0,
     targets: parsedTargets,
-    targetsHit: Number(getVal(s, 'targetsHit') || 0), 
+    targetsHit: getNum(s, 'targetsHit') || 0, 
     action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
     status: normalizeStatus(getVal(s, 'status')),
-    pnlPoints: Number(getVal(s, 'pnlPoints') || 0),
-    pnlRupees: getVal(s, 'pnlRupees') !== undefined ? Number(getVal(s, 'pnlRupees')) : undefined,
-    trailingSL: getVal(s, 'trailingSL') ? Number(getVal(s, 'trailingSL')) : null,
+    pnlPoints: getNum(s, 'pnlPoints') || 0,
+    pnlRupees: getNum(s, 'pnlRupees'),
+    trailingSL: getNum(s, 'trailingSL') ?? null,
     comment: String(getVal(s, 'comment') || ''),
     timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
-    quantity: Number(getVal(s, 'quantity') || 0),
-    cmp: Number(getVal(s, 'cmp') || 0),
-    isBTST: String(getVal(s, 'btst') || '').toUpperCase() === 'TRUE'
+    quantity: getNum(s, 'quantity') || 0,
+    cmp: getNum(s, 'cmp') || 0,
+    isBTST: isTrue(getVal(s, 'btst'))
   };
 };
 

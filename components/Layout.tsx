@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff, ExternalLink, TrendingUp } from 'lucide-react';
+import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff, ExternalLink, TrendingUp, ShieldCheck } from 'lucide-react';
 import { User } from '../types';
 import { SEBI_DISCLAIMER, FOOTER_TEXT, BRANDING_TEXT } from '../constants';
 
@@ -15,22 +15,16 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, onNavigate }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTabFocused, setIsTabFocused] = useState(true);
+  const [timeLeft, setTimeLeft] = useState<{ days: number, hours: number, minutes: number, seconds: number, expired: boolean, soon: boolean, perpetual: boolean } | null>(null);
 
-  // Security: Blur screen when tab loses focus (prevents background recording)
   useEffect(() => {
-    if (user?.isAdmin) return; // Admins exempt
-
-    const handleVisibility = () => {
-      setIsTabFocused(!document.hidden);
-    };
-
+    if (user?.isAdmin) return;
+    const handleVisibility = () => setIsTabFocused(!document.hidden);
     const handleBlur = () => setIsTabFocused(false);
     const handleFocus = () => setIsTabFocused(true);
-
     window.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('blur', handleBlur);
     window.addEventListener('focus', handleFocus);
-
     return () => {
       window.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('blur', handleBlur);
@@ -38,32 +32,58 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
     };
   }, [user]);
 
-  const subscriptionStatus = useMemo(() => {
-    if (!user?.expiryDate) return { days: 0, expired: true, soon: false };
-    
-    let expiryStr = user.expiryDate;
-    if (expiryStr.includes('-') && expiryStr.split('-')[0].length === 2) {
-      const parts = expiryStr.split('-');
-      expiryStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
-    }
-    
-    const end = new Date(expiryStr);
-    if (isNaN(end.getTime())) return { days: 0, expired: true, soon: false };
-    
-    end.setHours(23, 59, 59, 999);
-    const now = new Date();
-    
-    const diffTime = end.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    return {
-      days: diffDays > 0 ? diffDays : 0,
-      expired: now > end,
-      soon: diffDays <= 5 && diffDays > 0
-    };
-  }, [user]);
+  useEffect(() => {
+    const calculateTime = () => {
+        const rawExpiry = String(user?.expiryDate || '').trim();
+        if (!rawExpiry || rawExpiry.toLowerCase() === 'perpetual' || rawExpiry.toLowerCase() === 'admin') {
+          setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0, expired: false, soon: false, perpetual: true });
+          return;
+        }
+        
+        let expiryStr = rawExpiry;
+        if (expiryStr.includes('-') && expiryStr.split('-')[0].length === 2) {
+          const parts = expiryStr.split('-');
+          expiryStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        } else if (expiryStr.includes('/')) {
+           const parts = expiryStr.split('/');
+           if (parts[0].length === 2) expiryStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+        
+        const end = new Date(expiryStr);
+        if (isNaN(end.getTime())) {
+          setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0, expired: false, soon: false, perpetual: true });
+          return;
+        }
+        
+        end.setHours(23, 59, 59, 999);
+        const now = new Date();
+        const diff = end.getTime() - now.getTime();
+        
+        if (diff <= 0) {
+            setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0, expired: true, soon: false, perpetual: false });
+            return;
+        }
 
-  const { days: daysLeft, expired: isExpired, soon: isExpiringSoon } = subscriptionStatus;
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        
+        setTimeLeft({ 
+          days, 
+          hours, 
+          minutes, 
+          seconds, 
+          expired: false, 
+          soon: days < 5,
+          perpetual: false
+        });
+    };
+
+    calculateTime();
+    const timer = setInterval(calculateTime, 1000);
+    return () => clearInterval(timer);
+  }, [user?.expiryDate]);
 
   const NavItem = ({ page, icon: Icon, label }: { page: string; icon: any; label: string }) => (
     <button
@@ -82,9 +102,32 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
     </button>
   );
 
+  const formatUnit = (n: number) => n.toString().padStart(2, '0');
+
+  const CountdownBadge = () => {
+    if (!timeLeft) return null;
+    return (
+      <div className={`flex items-center space-x-1.5 text-[9px] font-mono font-black px-2 py-1 rounded-md transition-all duration-300 ${
+          timeLeft.perpetual ? 'bg-blue-900/20 text-blue-400 border border-blue-500/20' :
+          timeLeft.expired ? 'bg-rose-950 text-rose-500 border border-rose-500/50' : 
+          timeLeft.soon ? 'bg-rose-600 text-white animate-critical border border-white/40 shadow-lg' : 
+          'bg-emerald-900/20 text-emerald-400 border border-emerald-500/20'
+      }`}>
+          {timeLeft.perpetual ? <ShieldCheck size={10} /> : (timeLeft.soon || timeLeft.expired ? <AlertCircle size={10} /> : <Clock size={10} />)}
+          <span className="uppercase tracking-tighter whitespace-nowrap">
+            {timeLeft.perpetual ? 'UNLIMITED ACCESS' : 
+             timeLeft.expired ? 'EXPIRED' : (
+              timeLeft.soon ? (
+                `${timeLeft.days}D ${formatUnit(timeLeft.hours)}:${formatUnit(timeLeft.minutes)}:${formatUnit(timeLeft.seconds)}`
+              ) : `${timeLeft.days} DAYS LEFT`
+            )}
+          </span>
+      </div>
+    );
+  };
+
   return (
     <div className={`min-h-screen flex flex-col md:flex-row relative overflow-hidden ${!isTabFocused ? 'app-protected' : ''} ${!user?.isAdmin ? 'no-screenshot' : ''}`}>
-      {/* Privacy Guard Overlay */}
       {!isTabFocused && !user?.isAdmin && (
         <div className="fixed inset-0 z-[99999] bg-slate-950/80 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-6">
           <EyeOff size={64} className="text-slate-500 mb-4 animate-pulse" />
@@ -93,7 +136,6 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
         </div>
       )}
 
-      {/* Dynamic Watermark Overlay */}
       {user && (
         <div className="watermark">
           {Array.from({ length: 40 }).map((_, i) => (
@@ -105,25 +147,30 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
       )}
 
       {/* Mobile Header */}
-      <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-50 sticky top-0">
+      <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-50 sticky top-0 shadow-xl">
         <div className="flex items-center space-x-2">
             <div className="w-8 h-8 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-lg flex items-center justify-center text-white shadow-lg">
                 <Scale size={18} strokeWidth={2.5} />
             </div>
-            <span className="font-bold text-lg text-white tracking-tight">LibraQuant</span>
+            <div className="flex flex-col">
+              <span className="font-bold text-xs text-white tracking-tight uppercase leading-none">LibraQuant</span>
+              <div className="mt-1">
+                 <CountdownBadge />
+              </div>
+            </div>
         </div>
-        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-slate-300">
-          {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
+        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 bg-slate-800 rounded-lg text-slate-300">
+          {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
       </div>
 
       <aside
         className={`fixed md:relative z-40 top-0 left-0 h-full w-64 bg-slate-900 border-r border-slate-800 transform transition-transform duration-300 ease-in-out ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        } flex flex-col`}
+        } flex flex-col shadow-2xl`}
       >
         <div className="p-6 hidden md:flex items-center space-x-3 mb-6">
-          <div className="w-10 h-10 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-purple-900/20">
+          <div className="w-10 h-10 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg">
              <Scale size={22} strokeWidth={2.5} />
           </div>
           <div>
@@ -138,24 +185,6 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
           <NavItem page="stats" icon={BarChart2} label="P&L Analytics" />
           <NavItem page="rules" icon={ShieldAlert} label="Rules & Disclaimer" />
           {user?.isAdmin && <NavItem page="admin" icon={FileText} label="Admin Panel" />}
-          
-          {/* Institutional Demat CTA */}
-          <div className="mt-6 px-2">
-            <a 
-              href="https://oa.mynt.in/?ref=ZTN348" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="group relative flex flex-col items-center justify-center p-4 rounded-xl overflow-hidden bg-slate-950 border border-slate-800 transition-all hover:border-amber-500/50 hover:shadow-[0_0_20px_rgba(245,158,11,0.15)]"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10 text-amber-500 mb-2 group-hover:scale-110 transition-transform">
-                <TrendingUp size={18} />
-              </div>
-              <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.2em] text-center">Open Demat A/C</p>
-              <p className="text-[8px] text-slate-500 font-bold uppercase mt-1 text-center">Zero AMC * Partners</p>
-              <ExternalLink size={10} className="absolute top-2 right-2 text-slate-700 group-hover:text-amber-500" />
-            </a>
-          </div>
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -164,20 +193,14 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
               <UserIcon size={16} />
             </div>
             <div className="overflow-hidden w-full">
-              <p className="text-sm font-medium text-white truncate">{user?.name}</p>
-              
-              <div className={`mt-1 flex items-center space-x-1.5 text-xs font-mono font-bold px-2 py-0.5 rounded-md transition-all duration-300 ${
-                  isExpired ? 'bg-rose-950 text-rose-500 border border-rose-500/50' : 
-                  isExpiringSoon ? 'bg-rose-600 text-white animate-pulse border border-white/20 shadow-[0_0_15px_rgba(225,29,72,0.4)]' : 
-                  'bg-emerald-900/20 text-emerald-400'
-              }`}>
-                  {isExpiringSoon || isExpired ? <AlertCircle size={10} className={isExpiringSoon ? 'animate-bounce' : ''} /> : <Clock size={10} />}
-                  <span>{isExpired ? 'EXPIRED' : `${daysLeft} DAYS LEFT`}</span>
+              <p className="text-sm font-bold text-white truncate">{user?.name}</p>
+              <div className="mt-1.5">
+                <CountdownBadge />
               </div>
             </div>
           </div>
-          <button onClick={onLogout} className="flex items-center justify-center w-full py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-red-900/20 hover:text-red-400 transition-colors text-sm">
-            <LogOut size={16} className="mr-2" />
+          <button onClick={onLogout} className="flex items-center justify-center w-full py-2 px-4 rounded-lg bg-slate-800 text-slate-300 hover:bg-rose-900/30 hover:text-rose-400 transition-colors text-xs font-bold uppercase tracking-widest">
+            <LogOut size={14} className="mr-2" />
             Sign Out
           </button>
         </div>
