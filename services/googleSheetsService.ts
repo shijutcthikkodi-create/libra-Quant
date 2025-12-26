@@ -202,6 +202,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
       messages: (data.messages || []).map((m: any) => ({
         id: String(getVal(m, 'id') || Math.random()),
         userId: String(getVal(m, 'userId') || '').trim(),
+        senderName: String(getVal(m, 'senderName') || 'Trader'),
         text: String(getVal(m, 'text') || '').trim(),
         timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
         isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
