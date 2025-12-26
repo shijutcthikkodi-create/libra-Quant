@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Moon } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Moon, Trash2 } from 'lucide-react';
 import { TradeSignal, TradeStatus, OptionType, User } from '../types';
 import { analyzeTradeSignal } from '../services/geminiService';
 
@@ -9,10 +9,11 @@ interface SignalCardProps {
   user: User;
   highlights?: Set<string>;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
+  onSignalDelete?: (signal: TradeSignal) => Promise<void>;
   isRecentlyClosed?: boolean;
 }
 
-const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, isRecentlyClosed }) => {
+const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, onSignalDelete, isRecentlyClosed }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   
@@ -333,10 +334,22 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 {new Date(signal.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
             </div>
             
-            <button onClick={handleAIAnalysis} disabled={loadingAnalysis} className="flex items-center py-1 text-[10px] font-bold text-blue-500 hover:text-blue-400 uppercase tracking-widest transition-colors">
-                <Cpu size={12} className="mr-1.5" />
-                {loadingAnalysis ? 'Syncing AI...' : analysis ? 'Close Intel' : 'AI Analysis'}
-            </button>
+            <div className="flex items-center space-x-4">
+              {/* Added Delete button for Admins */}
+              {user.isAdmin && onSignalDelete && (
+                <button 
+                  onClick={() => onSignalDelete(signal)} 
+                  className="p-1 text-slate-600 hover:text-rose-500 transition-colors"
+                  title="Delete Signal"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+              <button onClick={handleAIAnalysis} disabled={loadingAnalysis} className="flex items-center py-1 text-[10px] font-bold text-blue-500 hover:text-blue-400 uppercase tracking-widest transition-colors">
+                  <Cpu size={12} className="mr-1.5" />
+                  {loadingAnalysis ? 'Syncing AI...' : analysis ? 'Close Intel' : 'AI Analysis'}
+              </button>
+            </div>
         </div>
         
         {analysis && (
