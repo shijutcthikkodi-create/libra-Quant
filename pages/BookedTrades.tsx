@@ -1,7 +1,8 @@
 
 import React, { useMemo } from 'react';
 import SignalCard from '../components/SignalCard';
-import { History, Briefcase, Calendar, BarChart3, PieChart, Clock, Moon, Landmark } from 'lucide-react';
+// Added Trash2 to the lucide-react imports
+import { History, Briefcase, Calendar, BarChart3, PieChart, Clock, Moon, Landmark, ChevronDown, Trash2 } from 'lucide-react';
 import { TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
@@ -12,6 +13,7 @@ interface BookedTradesProps {
   granularHighlights: GranularHighlights;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
   onSignalDelete: (signal: TradeSignal) => Promise<void>;
+  onClearHistory?: () => void;
 }
 
 const BookedTrades: React.FC<BookedTradesProps> = ({ 
@@ -20,7 +22,8 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
   user, 
   granularHighlights,
   onSignalUpdate,
-  onSignalDelete
+  onSignalDelete,
+  onClearHistory
 }) => {
   const INDEX_MATCHERS = ['NIFTY', 'BANK', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
 
@@ -43,7 +46,14 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     // STRICT DE-DUPLICATION: Use ID map to ensure ghost trades or duplicates don't double P&L
     const tradeMap = new Map<string, TradeSignal>();
     combinedData.forEach(item => {
-      if (item.id) tradeMap.set(item.id, item);
+      if (item.id) {
+        // If it exists in history, prefer the history version as it's the "Final Truth"
+        if (item.status === TradeStatus.EXITED || item.status === TradeStatus.STOPPED || item.status === TradeStatus.ALL_TARGET) {
+            tradeMap.set(item.id, item);
+        } else if (!tradeMap.has(item.id)) {
+            tradeMap.set(item.id, item);
+        }
+      }
     });
 
     const booked = Array.from(tradeMap.values()).filter(signal => {
@@ -79,13 +89,13 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       let groupKey = '';
       if (tradeDate === today) groupKey = 'TODAY';
       else if (tradeDate === yesterday) groupKey = 'YESTERDAY';
+      else groupKey = 'PAST RECORDS'; // This ensures older data is NOT hidden
       
-      if (groupKey) {
-        if (!groups[groupKey]) groups[groupKey] = [];
-        groups[groupKey].push(s);
-      }
+      if (!groups[groupKey]) groups[groupKey] = [];
+      groups[groupKey].push(s);
     });
 
+    // Sort each group by timestamp (newest first)
     Object.keys(groups).forEach(key => {
       groups[key].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     });
@@ -112,7 +122,11 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     </div>
   );
 
-  const groupKeys = Object.keys(groupedSignals).sort((a, b) => a === 'TODAY' ? -1 : 1);
+  // Custom sort for group keys: TODAY -> YESTERDAY -> PAST RECORDS
+  const groupOrder = ['TODAY', 'YESTERDAY', 'PAST RECORDS'];
+  const groupKeys = Object.keys(groupedSignals).sort((a, b) => {
+      return groupOrder.indexOf(a) - groupOrder.indexOf(b);
+  });
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -124,12 +138,12 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
              </div>
              <div>
                 <h2 className="text-3xl font-black text-white tracking-tighter uppercase leading-none">
-                  Trade History
+                  History Vault
                 </h2>
                 <div className="flex items-center space-x-2 mt-1">
                    <div className="px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[9px] font-bold text-blue-400 tracking-tighter flex items-center uppercase">
                       <Briefcase size={10} className="mr-1" />
-                      Vault Record: {totalCount} Closed Trades
+                      Total Records: {totalCount} Closed Trades
                    </div>
                 </div>
              </div>
@@ -139,17 +153,25 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
             <div className="absolute top-0 right-0 p-2 opacity-5">
               <Landmark size={48} className="text-white" />
             </div>
-            <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Total Realized P&L</span>
+            <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Cumulative Realized P&L</span>
             <p className={`text-3xl font-mono font-black tracking-tighter ${stats.totalNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
               {stats.totalNet >= 0 ? '+' : ''}₹{stats.totalNet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
+            {user.isAdmin && onClearHistory && (
+                <button 
+                  onClick={onClearHistory}
+                  className="mt-4 text-[9px] font-bold text-rose-500/60 hover:text-rose-500 transition-colors uppercase tracking-widest flex items-center"
+                >
+                  <Trash2 size={10} className="mr-1" /> Wipe History Vault
+                </button>
+            )}
           </div>
         </div>
 
         <div className="w-full xl:max-w-4xl">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatBox label="Index Intraday" value={stats.indexIntraday} icon={BarChart3} iconColor="text-blue-500" subtext="Regular" />
-            <StatBox label="Stock Intraday" value={stats.stockIntraday} icon={PieChart} iconColor="text-purple-500" subtext="Regular" />
+            <StatBox label="Index Intraday" value={stats.indexIntraday} icon={BarChart3} iconColor="text-blue-500" subtext="Standard" />
+            <StatBox label="Stock Intraday" value={stats.stockIntraday} icon={PieChart} iconColor="text-purple-500" subtext="Standard" />
             <StatBox label="Index BTST" value={stats.indexBTST} icon={Moon} iconColor="text-amber-500" subtext="Overnight" bgColor="border-amber-500/20" />
             <StatBox label="Stock BTST" value={stats.stockBTST} icon={Clock} iconColor="text-orange-500" subtext="Overnight" bgColor="border-orange-500/20" />
           </div>
@@ -162,8 +184,8 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
             <div className="w-20 h-20 bg-slate-800/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-slate-700/50">
               <Calendar size={40} className="text-slate-800" />
             </div>
-            <p className="text-slate-500 font-black uppercase tracking-widest text-sm italic">Terminal Data Verified</p>
-            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Syncing directly from Institutional Sheets.</p>
+            <p className="text-slate-500 font-black uppercase tracking-widest text-sm italic">Archive Empty</p>
+            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Booked trades from the live terminal will appear here.</p>
           </div>
         ) : (
           <div className="space-y-10">
@@ -172,7 +194,8 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
                 <div className="flex items-center space-x-3 sticky top-0 z-20 py-2 bg-slate-950/80 backdrop-blur-sm">
                    <div className={`px-3 py-1 rounded text-[10px] font-black border tracking-widest ${
                      dateKey === 'TODAY' ? 'bg-blue-600 text-white border-blue-500 shadow-lg' : 
-                     'bg-slate-800 text-slate-300 border-slate-700'
+                     dateKey === 'YESTERDAY' ? 'bg-slate-800 text-slate-300 border-slate-700' :
+                     'bg-slate-900 text-slate-500 border-slate-800 italic'
                    }`}>
                       {dateKey}
                    </div>
