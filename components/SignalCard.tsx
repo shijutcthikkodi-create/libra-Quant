@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+// Add Trash2 to imports
 import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Moon, Trash2 } from 'lucide-react';
 import { TradeSignal, TradeStatus, OptionType, User } from '../types';
 import { analyzeTradeSignal } from '../services/geminiService';
@@ -9,10 +10,12 @@ interface SignalCardProps {
   user: User;
   highlights?: Set<string>;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
+  // Add onSignalDelete to props interface to fix type error in Dashboard.tsx
   onSignalDelete?: (signal: TradeSignal) => Promise<void>;
   isRecentlyClosed?: boolean;
 }
 
+// Update component signature to include onSignalDelete
 const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, onSignalDelete, isRecentlyClosed }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
@@ -191,6 +194,16 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         </div>
         <div className="flex flex-col items-end space-y-1.5 pr-2">
             <div className="flex items-center space-x-2">
+              {/* Add Delete button for admins if onSignalDelete is provided */}
+              {user.isAdmin && onSignalDelete && (
+                <button 
+                  onClick={() => onSignalDelete(signal)}
+                  className="p-1.5 bg-slate-800 text-slate-500 hover:text-rose-500 rounded-lg border border-slate-700 transition-colors mr-1"
+                  title="Delete Signal"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
               <div className={`px-3 py-1 rounded text-[10px] font-bold border ${getStatusColor(signal.status)} flex items-center`}>
                   {isAllTarget ? <Trophy size={10} className="mr-2" /> : <span className={`w-1.5 h-1.5 rounded-full mr-2 ${isActive ? 'bg-current' : 'bg-current opacity-50'}`}></span>}
                   {signal.status}
@@ -334,22 +347,10 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 {new Date(signal.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
             </div>
             
-            <div className="flex items-center space-x-4">
-              {/* Added Delete button for Admins */}
-              {user.isAdmin && onSignalDelete && (
-                <button 
-                  onClick={() => onSignalDelete(signal)} 
-                  className="p-1 text-slate-600 hover:text-rose-500 transition-colors"
-                  title="Delete Signal"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-              <button onClick={handleAIAnalysis} disabled={loadingAnalysis} className="flex items-center py-1 text-[10px] font-bold text-blue-500 hover:text-blue-400 uppercase tracking-widest transition-colors">
-                  <Cpu size={12} className="mr-1.5" />
-                  {loadingAnalysis ? 'Syncing AI...' : analysis ? 'Close Intel' : 'AI Analysis'}
-              </button>
-            </div>
+            <button onClick={handleAIAnalysis} disabled={loadingAnalysis} className="flex items-center py-1 text-[10px] font-bold text-blue-500 hover:text-blue-400 uppercase tracking-widest transition-colors">
+                <Cpu size={12} className="mr-1.5" />
+                {loadingAnalysis ? 'Syncing AI...' : analysis ? 'Close Intel' : 'AI Analysis'}
+            </button>
         </div>
         
         {analysis && (

@@ -7,10 +7,9 @@ import Stats from './pages/Stats';
 import Rules from './pages/Rules';
 import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
-import Support from './pages/Support';
 import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database, MessageSquare } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
@@ -255,10 +254,9 @@ const App: React.FC = () => {
 
       {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} onSignalDelete={handleSignalDelete} />}
       {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
-      {page === 'community' && <Support user={user} messages={messages} onRefresh={() => sync(false)} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
-      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} messages={messages} onRefresh={() => sync(false)} onNavigate={setPage} onHardSync={handleHardSync} />}
+      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} onNavigate={setPage} onHardSync={handleHardSync} />}
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>
@@ -272,12 +270,6 @@ const App: React.FC = () => {
             <CheckCircle size={page === 'booked' ? 24 : 20} strokeWidth={page === 'booked' ? 3 : 2} />
           </div>
           <span className="text-[10px] font-bold uppercase tracking-tighter">History</span>
-        </button>
-        <button onClick={() => setPage('community')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'community' ? 'text-blue-400' : 'text-slate-500'}`}>
-          <div className={`${page === 'community' ? 'bg-blue-400/10 p-2 rounded-xl shadow-[0_0_15px_rgba(96,165,250,0.2)]' : ''}`}>
-            <MessageSquare size={page === 'community' ? 24 : 20} strokeWidth={page === 'community' ? 3 : 2} />
-          </div>
-          <span className="text-[10px] font-bold uppercase tracking-tighter">Chat</span>
         </button>
         <button onClick={() => setPage('stats')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'stats' ? 'text-yellow-500' : 'text-slate-500'}`}>
           <div className={`${page === 'stats' ? 'bg-yellow-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(234,179,8,0.2)]' : ''}`}>

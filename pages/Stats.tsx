@@ -14,14 +14,15 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
     const now = new Date();
     // en-CA gives YYYY-MM-DD which matches the sheet/ISO format
     const fmt = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+    const dayName = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long' }).format(now);
     
     const today = fmt(now);
     const monthYear = today.split('-').slice(0, 2).join('-'); // YYYY-MM
-    return { today, monthYear };
+    return { today, monthYear, dayName };
   };
 
   const performance = useMemo(() => {
-    const { today: istToday, monthYear: currentMonthYear } = getISTStrings();
+    const { today: istToday, monthYear: currentMonthYear, dayName } = getISTStrings();
     const combinedData = [...signals, ...historySignals];
     
     // Deduplicate trades by ID
@@ -39,29 +40,28 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
     );
 
     let todayPnL = 0;
-    let monthPnL = 0;
     let todayClosedCount = 0;
+    let latestSessionPnL = 0;
+    let latestSessionCount = 0;
+    let latestSessionDate = "";
     
     const monthlySetupGroups: Record<string, number> = {};
     const monthlyIntraGroups: Record<string, number> = {};
     const monthlyBtstGroups: Record<string, number> = {};
     const dailyMap: Record<string, number> = {};
 
-    // Prep 7-day chart slots for IST
-    for (let i = 6; i >= 0; i--) {
+    // Prep 10-day chart slots for IST to ensure weekends don't push Friday off the chart too early
+    for (let i = 9; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
       dailyMap[dateKey] = 0;
     }
 
+    // First pass: Group data and find latest trading day
+    const tradesByDate: Record<string, { pnl: number, count: number }> = {};
+
     closedTrades.forEach(trade => {
-      /**
-       * CRITICAL LOGIC UPDATE:
-       * "Today's P&L" must reflect trades closed TODAY.
-       * We check lastTradedTimestamp first (set when Admin closes a trade),
-       * then fallback to the signal's timestamp, and finally the manual sheet date.
-       */
       const effectiveCloseTimestamp = trade.lastTradedTimestamp || trade.timestamp;
       const effectiveCloseDate = effectiveCloseTimestamp ? effectiveCloseTimestamp.split('T')[0] : (trade.date || '');
       
@@ -71,15 +71,13 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
       
       const setupKey = `${trade.instrument}_${trade.symbol}_${trade.type}`.toUpperCase();
       
-      // Calculate Today's Realized P&L
-      if (effectiveCloseDate === istToday) {
-        todayPnL += pnl;
-        todayClosedCount++;
-      }
-      
-      // Calculate Monthly Net (Still based on closure date for accuracy)
+      // Track P&L per date
+      if (!tradesByDate[effectiveCloseDate]) tradesByDate[effectiveCloseDate] = { pnl: 0, count: 0 };
+      tradesByDate[effectiveCloseDate].pnl += pnl;
+      tradesByDate[effectiveCloseDate].count += 1;
+
+      // Current Month Stats
       if (effectiveCloseDate.startsWith(currentMonthYear)) {
-        monthPnL += pnl;
         monthlySetupGroups[setupKey] = (monthlySetupGroups[setupKey] || 0) + pnl;
         if (trade.isBTST) monthlyBtstGroups[setupKey] = (monthlyBtstGroups[setupKey] || 0) + pnl;
         else monthlyIntraGroups[setupKey] = (monthlyIntraGroups[setupKey] || 0) + pnl;
@@ -91,23 +89,46 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
       }
     });
 
+    // Calculate Today's P&L
+    if (tradesByDate[istToday]) {
+        todayPnL = tradesByDate[istToday].pnl;
+        todayClosedCount = tradesByDate[istToday].count;
+    }
+
+    // Identify Latest Session (for weekends or empty today)
+    const sortedDates = Object.keys(tradesByDate).sort((a, b) => b.localeCompare(a));
+    const mostRecentDate = sortedDates[0];
+    
+    if (mostRecentDate) {
+        latestSessionPnL = tradesByDate[mostRecentDate].pnl;
+        latestSessionCount = tradesByDate[mostRecentDate].count;
+        latestSessionDate = mostRecentDate;
+    }
+
     const calculateWinRate = (groups: Record<string, number>) => {
       const outcomes = Object.values(groups);
       const wins = outcomes.filter(val => val > 0).length;
       return outcomes.length > 0 ? (wins / outcomes.length) * 100 : 0;
     };
 
+    const isWeekend = dayName === 'Saturday' || dayName === 'Sunday';
+    const showLatestInsteadOfToday = isWeekend || todayClosedCount === 0;
+
     return {
       todayPnL,
-      monthPnL,
       todayClosedCount,
+      displayPnL: showLatestInsteadOfToday ? latestSessionPnL : todayPnL,
+      displayCount: showLatestInsteadOfToday ? latestSessionCount : todayClosedCount,
+      displayDateLabel: showLatestInsteadOfToday ? (latestSessionDate ? `Session: ${latestSessionDate.split('-').slice(1).reverse().join('/')}` : 'No Session') : 'Session: Today',
+      displayTitle: showLatestInsteadOfToday ? 'Latest Session P&L' : "Today's Net P&L",
+      monthPnL: Object.values(tradesByDate).filter((_, i) => sortedDates[i]?.startsWith(currentMonthYear)).reduce((acc, curr) => acc + curr.pnl, 0),
       overallWinRate: calculateWinRate(monthlySetupGroups),
       intradayWinRate: calculateWinRate(monthlyIntraGroups),
       btstWinRate: calculateWinRate(monthlyBtstGroups),
       chartData: Object.entries(dailyMap).map(([date, value]) => ({
         date: date.split('-').slice(1).reverse().join('/'),
         pnl: value
-      })),
+      })).slice(-7), // Keep only last 7 days for the actual visual
       totalSetups: Object.keys(monthlySetupGroups).length,
       totalIntra: Object.keys(monthlyIntraGroups).length,
       totalBTST: Object.keys(monthlyBtstGroups).length,
@@ -132,26 +153,27 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
         </div>
         <div className="flex items-center px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl">
            <div className="flex flex-col items-end">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Session Finalizations</span>
-              <span className="text-xs font-mono font-bold text-white">{performance.todayClosedCount} Trades Closed Today</span>
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Terminal Activity</span>
+              <span className="text-xs font-mono font-bold text-white">{performance.displayCount} Trades in {performance.displayDateLabel}</span>
            </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <StatItem 
-          label="Today's Net P&L" 
-          value={formatCurrency(performance.todayPnL)} 
-          isPositive={performance.todayPnL >= 0} 
+          label={performance.displayTitle} 
+          value={formatCurrency(performance.displayPnL)} 
+          isPositive={performance.displayPnL >= 0} 
           icon={Activity}
           highlight={true}
-          subtext="Realized Profit/Loss"
+          subtext={performance.displayDateLabel}
         />
         <StatItem 
           label="Monthly Surplus" 
           value={formatCurrency(performance.monthPnL)} 
           isPositive={performance.monthPnL >= 0} 
           icon={Calendar}
+          subtext="Net for this cycle"
         />
         <StatItem 
           label="Monthly Win Rate" 
@@ -229,7 +251,7 @@ const StatItem = ({ label, value, isPositive, subtext, icon: Icon, highlight = f
     </div>
     <div className="flex items-center space-x-2 mb-3">
         <Icon size={14} className={highlight ? 'text-blue-500' : 'text-slate-500'} />
-        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{label}</p>
+        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest truncate">{label}</p>
     </div>
     <p className={`text-2xl font-mono font-black tracking-tighter leading-none ${isPositive ? 'text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.3)]' : 'text-rose-400 drop-shadow-[0_0_12px_rgba(251,113,133,0.3)]'}`}>
         {value}

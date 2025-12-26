@@ -33,13 +33,7 @@ const getVal = (obj: any, targetKey: string): any => {
   if (!obj || typeof obj !== 'object') return undefined;
   const normalizedTarget = targetKey.toLowerCase().replace(/\s|_|-/g, '');
   for (const key in obj) {
-    const normalizedKey = key.toLowerCase().replace(/\s|_|-/g, '');
-    if (normalizedKey === normalizedTarget) return obj[key];
-    
-    // Alias mapping for community chat
-    if (normalizedTarget === 'text' && (normalizedKey === 'msg' || normalizedKey === 'message' || normalizedKey === 'content')) return obj[key];
-    if (normalizedTarget === 'sendername' && (normalizedKey === 'name' || normalizedKey === 'user' || normalizedKey === 'sender')) return obj[key];
-    if (normalizedTarget === 'isadminreply' && (normalizedKey === 'admin' || normalizedKey === 'role' || normalizedKey === 'isadmin')) return obj[key];
+    if (key.toLowerCase().replace(/\s|_|-/g, '') === normalizedTarget) return obj[key];
   }
   return undefined;
 };
@@ -58,7 +52,7 @@ const getNum = (obj: any, key: string): number | undefined => {
 const isTrue = (val: any): boolean => {
   if (val === true || val === 1 || val === '1') return true;
   const s = String(val || '').toUpperCase().trim();
-  return ['TRUE', 'YES', 'Y', 'BTST', 'B.T.S.T', 'OVERNIGHT', 'ADMIN'].includes(s);
+  return ['TRUE', 'YES', 'Y', 'BTST', 'B.T.S.T', 'OVERNIGHT'].includes(s);
 };
 
 const normalizeStatus = (val: any): TradeStatus => {
@@ -130,6 +124,7 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
   const explicitId = getVal(s, 'id');
   const id = explicitId ? String(explicitId).trim() : generateTradeFingerprint(s, index, tabName);
 
+  // Expanded BTST check to catch mentions in Instrument or Comments
   const typeVal = String(getVal(s, 'type') || '').trim();
   const btstFlagRaw = getVal(s, 'isBTST') || getVal(s, 'btst');
   const isBtstCalculated = isTrue(btstFlagRaw) || 
@@ -195,7 +190,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         name: String(getVal(u, 'name') || 'Client'),
         phoneNumber: String(getVal(u, 'phoneNumber') || ''),
         expiryDate: String(getVal(u, 'expiryDate') || ''),
-        isAdmin: isTrue(getVal(u, 'isAdmin')),
+        isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
       })),
       logs: (data.logs || []).map((l: any) => ({
         timestamp: getVal(l, 'timestamp') || new Date().toISOString(),
@@ -204,21 +199,13 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         details: getVal(l, 'details') || '',
         type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
       })),
-      messages: (data.messages || []).map((m: any, idx: number) => {
-        const timestamp = getVal(m, 'timestamp') || new Date().toISOString();
-        const text = String(getVal(m, 'text') || '').trim();
-        // Skip entirely empty messages
-        if (!text) return null;
-
-        return {
-          id: String(getVal(m, 'id') || `msg-${idx}-${Date.now()}`),
-          userId: String(getVal(m, 'userId') || '').trim(),
-          senderName: String(getVal(m, 'senderName') || 'Trader'),
-          text: text,
-          timestamp: timestamp,
-          isAdminReply: isTrue(getVal(m, 'isAdminReply'))
-        };
-      }).filter((m: any) => m !== null)
+      messages: (data.messages || []).map((m: any) => ({
+        id: String(getVal(m, 'id') || Math.random()),
+        userId: String(getVal(m, 'userId') || '').trim(),
+        text: String(getVal(m, 'text') || '').trim(),
+        timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
+        isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
+      }))
     };
   } catch (error) {
     if (retries > 0) return fetchSheetData(retries - 1);

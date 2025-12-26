@@ -1,11 +1,11 @@
 
 import React, { useState, useMemo } from 'react';
-import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry, ChatMessage } from '../types';
+import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry } from '../types';
 import { 
   Trash2, Edit2, Radio, UserCheck, RefreshCw, Smartphone, Search, 
   History, Zap, Loader2, AlertTriangle, Clock, ShieldCheck, Activity, 
   Terminal, Download, LogIn, Users, Monitor, Plus, Target, TrendingUp,
-  ArrowUpCircle, ArrowDownCircle, ShieldAlert, Briefcase, ChevronRight, X, Database, MessageSquare, Send
+  ArrowUpCircle, ArrowDownCircle, ShieldAlert, Briefcase, ChevronRight, X, Database
 } from 'lucide-react';
 import { updateSheetData } from '../services/googleSheetsService';
 
@@ -17,17 +17,15 @@ interface AdminProps {
   users: User[];
   onUpdateUsers: (list: User[]) => void;
   logs?: LogEntry[];
-  messages?: ChatMessage[];
   onNavigate: (page: string) => void;
   onHardSync?: () => Promise<void>;
-  onRefresh?: () => void;
 }
 
-const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], messages = [], onHardSync, onRefresh }) => {
-  const [activeTab, setActiveTab] = useState<'SIGNALS' | 'SUPPORT' | 'CLIENTS' | 'LOGS'>('SIGNALS');
+const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], onHardSync }) => {
+  const [activeTab, setActiveTab] = useState<'SIGNALS' | 'CLIENTS' | 'LOGS'>('SIGNALS');
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [replyText, setReplyText] = useState('');
+  const [logFilter, setLogFilter] = useState<'ALL' | 'SECURITY' | 'TRADE' | 'SYSTEM' | 'LOGIN'>('ALL');
 
   // New Signal Form State
   const [isAddingSignal, setIsAddingSignal] = useState(false);
@@ -46,9 +44,12 @@ const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], messages = [],
     return (signals || []).filter(s => s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL);
   }, [signals]);
 
-  const sortedMessages = useMemo(() => {
-    return [...(messages || [])].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [messages]);
+  const filteredLogs = useMemo(() => {
+    const list = logFilter === 'ALL' 
+      ? [...logs] 
+      : logs.filter(l => l.type === (logFilter as any));
+    return [...list].reverse();
+  }, [logs, logFilter]);
 
   const handleAddSignal = async () => {
     if (!sigSymbol || !sigEntry || !sigSL) return;
@@ -82,32 +83,9 @@ const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], messages = [],
         details: `New: ${newSignal.instrument} ${newSignal.symbol}`,
         type: 'TRADE'
       });
+      // Clear form
       setSigSymbol(''); setSigEntry(''); setSigSL(''); setSigTargets(''); setSigComment(''); setSigQty('');
       setIsAddingSignal(false);
-    }
-    setIsSaving(false);
-  };
-
-  const handleDeleteMessage = async (id: string) => {
-    if (!window.confirm('Delete this message?')) return;
-    await updateSheetData('messages', 'DELETE_MESSAGE', {}, id);
-    if (onRefresh) onRefresh();
-  };
-
-  const handleBroadcastReply = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!replyText.trim() || isSaving) return;
-    setIsSaving(true);
-    const success = await updateSheetData('messages', 'ADD', {
-        userId: 'ADMIN',
-        senderName: 'Research Desk',
-        text: replyText.trim(),
-        timestamp: new Date().toISOString(),
-        isAdminReply: true
-    });
-    if (success) {
-        setReplyText('');
-        if (onRefresh) onRefresh();
     }
     setIsSaving(false);
   };
@@ -133,19 +111,18 @@ const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], messages = [],
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-8">
         <div>
             <h2 className="text-2xl font-bold text-white tracking-tight">Admin Terminal</h2>
-            <p className="text-slate-500 text-xs font-medium mt-1 uppercase tracking-widest font-mono">Institutional Control Panel</p>
+            <p className="text-slate-500 text-xs font-medium mt-1">Order Execution • Client Management</p>
         </div>
         <div className="flex bg-slate-900 rounded-xl p-1 border border-slate-800 mt-4 md:mt-0 shadow-lg overflow-x-auto">
             {[
               { id: 'SIGNALS', icon: Radio, label: 'Live Trades' },
-              { id: 'SUPPORT', icon: MessageSquare, label: 'Community' },
               { id: 'CLIENTS', icon: UserCheck, label: 'Subscribers' },
-              { id: 'LOGS', icon: History, label: 'Security' }
+              { id: 'LOGS', icon: History, label: 'Audit Trail' }
             ].map((tab) => (
               <button 
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                  className={`flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
               >
                   <tab.icon size={14} className="mr-2" />
                   {tab.label}
@@ -153,59 +130,6 @@ const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], messages = [],
             ))}
         </div>
       </div>
-
-      {activeTab === 'SUPPORT' && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
-                <div className="p-5 border-b border-slate-800 bg-slate-800/20 flex items-center justify-between">
-                    <div className="flex items-center">
-                        <MessageSquare size={18} className="mr-3 text-blue-500" />
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">Moderation Desk</h3>
-                    </div>
-                </div>
-                
-                <div className="p-6 bg-slate-950/20">
-                   <form onSubmit={handleBroadcastReply} className="flex space-x-3 mb-8">
-                      <input 
-                        type="text" 
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        placeholder="Broadcast official reply to community..."
-                        className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-5 py-3 text-sm text-white focus:outline-none focus:border-blue-500/50"
-                      />
-                      <button type="submit" disabled={!replyText.trim() || isSaving} className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold text-xs uppercase shadow-xl flex items-center transition-all disabled:opacity-50">
-                        {isSaving ? <Loader2 size={16} className="animate-spin mr-2" /> : <Send size={16} className="mr-2" />}
-                        Broadcast
-                      </button>
-                   </form>
-
-                   <div className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
-                      {sortedMessages.length === 0 ? (
-                        <p className="text-center text-slate-500 py-10 font-mono text-xs uppercase tracking-widest">No recent messages to moderate</p>
-                      ) : (
-                        sortedMessages.map((msg) => (
-                           <div key={msg.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-start justify-between group">
-                              <div className="flex-1">
-                                 <div className="flex items-center space-x-3 mb-1">
-                                    <span className={`text-[10px] font-black uppercase tracking-widest ${msg.isAdminReply ? 'text-blue-400' : 'text-slate-400'}`}>
-                                       {msg.senderName} 
-                                       <span className="ml-2 text-slate-600 font-mono text-[8px]">{msg.userId}</span>
-                                    </span>
-                                    <span className="text-[8px] font-mono text-slate-700">{new Date(msg.timestamp).toLocaleString()}</span>
-                                 </div>
-                                 <p className="text-slate-300 text-sm">{msg.text}</p>
-                              </div>
-                              <button onClick={() => handleDeleteMessage(msg.id)} className="ml-4 p-2 text-slate-600 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100">
-                                 <Trash2 size={16} />
-                              </button>
-                           </div>
-                        ))
-                      )}
-                   </div>
-                </div>
-            </div>
-        </div>
-      )}
 
       {activeTab === 'SIGNALS' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
@@ -230,6 +154,7 @@ const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], messages = [],
 
                 {isAddingSignal && (
                     <div className="p-6 bg-slate-950/40 space-y-6">
+                        {/* Signal form fields here... same as original but Title Case for labels */}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-tighter">Instrument</label>
