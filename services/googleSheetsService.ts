@@ -66,12 +66,10 @@ const normalizeStatus = (val: any): TradeStatus => {
 const parseSheetDate = (val: any): string | undefined => {
   if (!val) return undefined;
   let dStr = String(val).trim();
-  // If it's DD-MM-YYYY, convert to YYYY-MM-DD
   if (/^\d{2}-\d{2}-\d{4}$/.test(dStr)) {
     const [d, m, y] = dStr.split('-');
     return `${y}-${m}-${d}`;
   }
-  // If it's a date object string from sheets
   const d = new Date(dStr);
   if (!isNaN(d.getTime())) {
     return d.toISOString().split('T')[0];
@@ -79,10 +77,12 @@ const parseSheetDate = (val: any): string | undefined => {
   return undefined;
 };
 
-const parseSignalRow = (s: any, index: number): TradeSignal | null => {
+const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | null => {
   const instrument = String(getVal(s, 'instrument') || '').trim();
   const symbol = String(getVal(s, 'symbol') || '').trim();
-  if (!instrument || !symbol) return null;
+  
+  // STRICT VALIDATION: Ignore empty or junk rows
+  if (!instrument || !symbol || instrument.length < 2) return null;
 
   const rawTargets = getVal(s, 'targets');
   let parsedTargets: number[] = [];
@@ -102,9 +102,13 @@ const parseSignalRow = (s: any, index: number): TradeSignal | null => {
   const btstVal = getVal(s, 'isBTST') || getVal(s, 'btst') || getVal(s, 'is_btst') || getVal(s, 'type');
   const dateStr = parseSheetDate(getVal(s, 'date'));
 
+  // UNIQUE ID: Prevent collision between tabs which breaks P&L
+  const explicitId = getVal(s, 'id');
+  const id = explicitId ? String(explicitId).trim() : `${tabName}-${index}`;
+
   return {
     ...s,
-    id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
+    id,
     date: dateStr,
     instrument,
     symbol,
@@ -138,20 +142,9 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
 
     const data = robustParseJson(await response.text());
     
-    const formattedUsers = (data.users || []).map((u: any) => ({
-      ...u,
-      id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || String(getVal(u, 'phoneNumber') || ''),
-      name: String(getVal(u, 'name') || 'Client'),
-      phoneNumber: String(getVal(u, 'phoneNumber') || ''),
-      password: String(getVal(u, 'password') || ''),
-      expiryDate: String(getVal(u, 'expiryDate') || ''),
-      isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
-      deviceId: getVal(u, 'deviceId') ? String(getVal(u, 'deviceId')) : null
-    }));
-
     return { 
-      signals: (data.signals || []).map((s: any, i: number) => ({ ...parseSignalRow(s, i), sheetIndex: i })).filter((s: any) => s !== null),
-      history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i)).filter((s: any) => s !== null),
+      signals: (data.signals || []).map((s: any, i: number) => ({ ...parseSignalRow(s, i, 'SIG'), sheetIndex: i })).filter((s: any) => s !== null),
+      history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i, 'HIST')).filter((s: any) => s !== null),
       watchlist: (data.watchlist || []).map((w: any) => ({ 
         ...w, 
         symbol: String(getVal(w, 'symbol') || ''),
@@ -160,7 +153,14 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         isPositive: getVal(w, 'isPositive') === true || String(getVal(w, 'isPositive')).toLowerCase() === 'true',
         lastUpdated: String(getVal(w, 'lastUpdated') || '')
       })).filter((w: any) => w.symbol),
-      users: formattedUsers,
+      users: (data.users || []).map((u: any) => ({
+        ...u,
+        id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || String(getVal(u, 'phoneNumber') || ''),
+        name: String(getVal(u, 'name') || 'Client'),
+        phoneNumber: String(getVal(u, 'phoneNumber') || ''),
+        expiryDate: String(getVal(u, 'expiryDate') || ''),
+        isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
+      })),
       logs: (data.logs || []).map((l: any) => ({
         timestamp: getVal(l, 'timestamp') || new Date().toISOString(),
         user: getVal(l, 'user') || 'System',
@@ -182,7 +182,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
   }
 };
 
-export const updateSheetData = async (target: 'signals' | 'watchlist' | 'users' | 'logs' | 'messages', action: string, payload: any, id?: string) => {
+export const updateSheetData = async (target: 'signals' | 'history' | 'watchlist' | 'users' | 'logs' | 'messages', action: string, payload: any, id?: string) => {
   if (!SCRIPT_URL) return false;
   try {
     await fetch(SCRIPT_URL, {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Trash2 } from 'lucide-react';
 import { TradeSignal, TradeStatus, OptionType, User } from '../types';
 import { analyzeTradeSignal } from '../services/geminiService';
 
@@ -9,10 +9,11 @@ interface SignalCardProps {
   user: User;
   highlights?: Set<string>;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
+  onSignalDelete?: (signal: TradeSignal) => Promise<void>;
   isRecentlyClosed?: boolean;
 }
 
-const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, isRecentlyClosed }) => {
+const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, onSignalDelete, isRecentlyClosed }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   
@@ -126,7 +127,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                  <span className="text-2xl tracking-[0.2em]">{stamp.text}</span>
                  <div className="flex items-center mt-1 space-x-2">
                     <History size={12} />
-                    <span className="text-[10px] font-bold opacity-60">ARCHIVING IN 1M</span>
+                    <span className="text-[10px] font-bold opacity-60 uppercase">Sheet Archiving</span>
                  </div>
               </div>
            </div>
@@ -158,32 +159,42 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
           </div>
           <div>
             <div className="flex items-center space-x-2 mb-0.5">
-                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${isBuy ? 'bg-emerald-500 text-slate-950 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-rose-500 text-white shadow-[0_0_10px_rgba(244,63,94,0.3)]'}`}>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${isBuy ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-white'}`}>
                     {signal.action}
                 </span>
                 <h3 className={`text-xl font-bold text-white tracking-tight font-mono ${highlights?.has('instrument') ? 'animate-blink' : ''}`}>{signal.instrument}</h3>
                 {signal.isBTST && (
-                  <div className={`flex items-center px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-[9px] font-black text-amber-500 animate-pulse ${highlights?.has('isBTST') ? 'animate-blink' : ''}`}>
+                  <div className={`flex items-center px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-[9px] font-black text-amber-500`}>
                     <Clock size={10} className="mr-1" /> BTST
                   </div>
                 )}
             </div>
             <div className="flex items-center space-x-2 text-xs">
-                <span className={`font-mono text-slate-400 uppercase ${highlights?.has('symbol') ? 'animate-blink' : ''}`}>{signal.symbol}</span>
-                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${highlights?.has('type') ? 'animate-blink' : ''} ${signal.type === OptionType.CE ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
+                <span className={`font-mono text-slate-400 uppercase`}>{signal.symbol}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${signal.type === OptionType.CE ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}`}>
                     {signal.type}
                 </span>
             </div>
           </div>
         </div>
         <div className="flex flex-col items-end space-y-1.5">
-            <div className={`px-3 py-1 rounded text-[10px] font-bold border ${getStatusColor(signal.status)} flex items-center ${highlights?.has('status') ? 'animate-blink' : ''}`}>
-                {isAllTarget ? <Trophy size={10} className="mr-2" /> : <span className={`w-1.5 h-1.5 rounded-full mr-2 ${isActive ? 'bg-current' : 'bg-current opacity-50'} ${isSLHit ? 'animate-ping' : ''}`}></span>}
-                {signal.status}
+            <div className="flex items-center space-x-2">
+              {user.isAdmin && onSignalDelete && (
+                <button 
+                  onClick={() => onSignalDelete(signal)}
+                  className="p-1.5 text-slate-600 hover:text-rose-500 transition-colors"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+              <div className={`px-3 py-1 rounded text-[10px] font-bold border ${getStatusColor(signal.status)} flex items-center`}>
+                  {isAllTarget ? <Trophy size={10} className="mr-2" /> : <span className={`w-1.5 h-1.5 rounded-full mr-2 ${isActive ? 'bg-current' : 'bg-current opacity-50'}`}></span>}
+                  {signal.status}
+              </div>
             </div>
             <div className="flex items-center text-[10px] font-bold text-slate-500 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
                 <ShieldAlert size={10} className="mr-1 text-blue-400" />
-                RISK: {riskGrade}
+                RR 1:{riskReward.toFixed(1)}
             </div>
         </div>
       </div>
@@ -191,7 +202,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
       <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-slate-800">
         <div className="bg-slate-900 p-4">
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 flex items-center">
-              Entry Price
+              Entry
             </p>
             <p className={`text-xl font-mono font-bold text-white ${highlights?.has('entryPrice') ? 'animate-blink' : ''}`}>₹{signal.entryPrice.toFixed(2)}</p>
             {signal.quantity ? (
@@ -203,7 +214,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         
         <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : 'bg-slate-900'}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Stop Loss</p>
-            <p className={`text-xl font-mono font-bold mb-3 ${highlights?.has('stopLoss') || isSLHit ? 'text-rose-500 animate-pulse drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]' : 'text-rose-400'}`}>
+            <p className={`text-xl font-mono font-bold mb-3 ${highlights?.has('stopLoss') || isSLHit ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
               ₹{signal.stopLoss.toFixed(2)}
             </p>
             
@@ -217,14 +228,14 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                         <button onClick={() => setIsEditingTrail(false)} disabled={isSavingTrail} className="p-1 bg-slate-700 text-slate-400 rounded"><X size={10} /></button>
                     </div>
                 ) : (
-                    <div className={`flex items-center justify-between rounded -mx-1 px-1 py-1 transition-colors group/trail ${canEdit ? 'cursor-pointer hover:bg-slate-800/50' : 'opacity-70'} ${highlights?.has('trailingSL') ? 'animate-blink' : ''}`} onClick={() => canEdit && setIsEditingTrail(true)}>
+                    <div className={`flex items-center justify-between rounded -mx-1 px-1 py-1 transition-colors group/trail ${canEdit ? 'cursor-pointer hover:bg-slate-800/50' : 'opacity-70'}`} onClick={() => canEdit && setIsEditingTrail(true)}>
                          <div className="flex items-center space-x-1.5">
                             <TrendingUp size={10} className={isTSLHit ? 'text-rose-500' : 'text-yellow-600'} />
-                            <span className="text-[10px] text-slate-500 uppercase font-bold">Trail SL</span>
+                            <span className="text-[10px] text-slate-500 uppercase font-bold">Trail</span>
                          </div>
                          <div className="flex items-center space-x-2">
                             <span className={`text-xs font-mono font-bold ${isTSLHit ? 'text-rose-500 animate-pulse' : 'text-yellow-500'}`}>
-                              {displayTrail !== undefined && displayTrail !== null ? `₹${displayTrail.toFixed(2)}` : '--'}
+                              {displayTrail !== undefined && displayTrail !== null ? `₹${displayTrail.toFixed(1)}` : '--'}
                             </span>
                             {canEdit && <Edit2 size={10} className="text-slate-700" />}
                          </div>
@@ -246,23 +257,13 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 )}
             </div>
             <div className="relative">
-              <p className={`text-2xl font-mono font-black tracking-tighter ${highlights?.has('cmp') ? 'animate-blink' : ''} ${
+              <p className={`text-2xl font-mono font-black tracking-tighter ${
                 cmpProfit ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]' : 
                 cmpLoss ? 'text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.4)]' : 
                 'text-white'
               }`}>
                 ₹{signal.cmp !== undefined ? signal.cmp.toFixed(2) : '0.00'}
               </p>
-              {isActive && signal.cmp !== undefined && (
-                <div className="flex items-center mt-1 space-x-1">
-                   <div className={`h-1 flex-1 rounded-full ${cmpProfit ? 'bg-emerald-500/30' : cmpLoss ? 'bg-rose-500/30' : 'bg-slate-800'}`}>
-                      <div className={`h-full rounded-full ${cmpProfit ? 'bg-emerald-500' : cmpLoss ? 'bg-rose-500' : 'bg-slate-600'} transition-all duration-700`} style={{ width: '100%' }}></div>
-                   </div>
-                   <span className={`text-[8px] font-bold font-mono ${cmpProfit ? 'text-emerald-500' : cmpLoss ? 'text-rose-500' : 'text-slate-500'}`}>
-                      {cmpProfit ? 'PROFIT' : cmpLoss ? 'LOSS' : 'MTM'}
-                   </span>
-                </div>
-              )}
             </div>
         </div>
       </div>
@@ -275,17 +276,17 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      {isExited ? 'Final Result' : 'Current P&L'}
+                      {isExited ? 'Realized P&L' : 'Unrealized'}
                   </span>
                 </div>
             </div>
             <div className="text-right flex flex-col items-end">
-                 <div className={`text-xl font-mono font-bold leading-none ${highlights?.has('pnlPoints') ? 'animate-blink' : ''} ${(signal.pnlPoints || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {(signal.pnlPoints || 0) > 0 ? '+' : ''}{(signal.pnlPoints || 0).toFixed(2)} pts
+                 <div className={`text-xl font-mono font-bold leading-none ${(signal.pnlPoints || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {(signal.pnlPoints || 0) > 0 ? '+' : ''}{(signal.pnlPoints || 0).toFixed(1)} pts
                  </div>
                  {signal.pnlRupees !== undefined && (
-                   <div className={`text-xs font-mono font-bold mt-1 ${highlights?.has('pnlRupees') ? 'animate-blink' : ''} ${(signal.pnlRupees || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                      {signal.pnlRupees >= 0 ? '+' : ''}₹{signal.pnlRupees.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                   <div className={`text-xs font-mono font-bold mt-1 ${(signal.pnlRupees || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                      {signal.pnlRupees >= 0 ? '+' : ''}₹{signal.pnlRupees.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                    </div>
                  )}
             </div>
@@ -298,7 +299,6 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 <Target size={14} className="text-blue-500" />
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Targets</span>
             </div>
-            <span className="text-[10px] font-mono text-slate-600 italic">RR 1:{riskReward.toFixed(2)}</span>
         </div>
         
         <div className="grid grid-cols-3 gap-2">
@@ -306,25 +306,18 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
               signal.targets.map((t, idx) => {
                 const isHit = isAllTarget || (signal.targetsHit || 0) > idx;
                 return (
-                  <div key={idx} className={`rounded px-2 py-2 text-center border transition-all duration-700 ${getTargetStyle(idx)} ${highlights?.has('blast') && isHit ? 'scale-110' : ''}`}>
+                  <div key={idx} className={`rounded px-2 py-2 text-center border transition-all duration-700 ${getTargetStyle(idx)}`}>
                       <p className={`text-[10px] font-black uppercase mb-0.5 ${isHit ? 'text-white' : 'text-slate-400'}`}>T{idx + 1}</p>
-                      <p className={`text-sm font-mono font-black ${isHit ? 'animate-pulse' : ''}`}>{t.toFixed(2)}</p>
+                      <p className={`text-sm font-mono font-black ${isHit ? 'animate-pulse' : ''}`}>{t.toFixed(1)}</p>
                       {isHit && <Check size={10} strokeWidth={3} className="mx-auto mt-1" />}
                   </div>
                 );
               })
-            ) : (
-              <div className="col-span-3 text-center py-4 bg-slate-950/50 border border-slate-800 rounded-lg">
-                <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest flex items-center justify-center">
-                  <AlertTriangle size={12} className="mr-2" />
-                  No targets defined
-                </p>
-              </div>
-            )}
+            ) : null}
         </div>
 
         {signal.comment && (
-            <div className={`mt-4 p-3 rounded-lg border transition-colors ${isSLHit || isTSLHit ? 'bg-rose-950/20 border-rose-500/30' : isAllTarget ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-slate-950/50 border-slate-800/50'} ${highlights?.has('comment') ? 'animate-blink' : ''}`}>
+            <div className={`mt-4 p-3 rounded-lg border transition-colors ${isSLHit || isTSLHit ? 'bg-rose-950/20 border-rose-500/30' : isAllTarget ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-slate-950/50 border-slate-800/50'}`}>
                 <p className={`text-xs leading-relaxed ${isSLHit || isTSLHit ? 'text-rose-400 font-bold' : isAllTarget ? 'text-emerald-400 font-bold italic' : 'text-slate-400'}`}>
                   " {signal.comment} "
                 </p>
@@ -339,7 +332,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             
             <button onClick={handleAIAnalysis} disabled={loadingAnalysis} className="flex items-center py-1 text-[10px] font-bold text-blue-500 hover:text-blue-400 uppercase tracking-widest transition-colors">
                 <Cpu size={12} className="mr-1.5" />
-                {loadingAnalysis ? 'Consulting AI...' : analysis ? 'Close Intel' : 'AI Analysis'}
+                {loadingAnalysis ? 'Syncing AI...' : analysis ? 'Close Intel' : 'AI Analysis'}
             </button>
         </div>
         

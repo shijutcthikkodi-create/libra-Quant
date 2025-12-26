@@ -11,6 +11,7 @@ interface BookedTradesProps {
   user: User;
   granularHighlights: GranularHighlights;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
+  onSignalDelete: (signal: TradeSignal) => Promise<void>;
 }
 
 const BookedTrades: React.FC<BookedTradesProps> = ({ 
@@ -18,7 +19,8 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
   historySignals = [],
   user, 
   granularHighlights,
-  onSignalUpdate
+  onSignalUpdate,
+  onSignalDelete
 }) => {
   const INDEX_MATCHERS = ['NIFTY', 'BANK', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
 
@@ -38,15 +40,13 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     const { today, yesterday } = getISTStrings();
     const combinedData = [...signals, ...historySignals];
     
-    const seenIds = new Set();
-    const uniqueTrades = combinedData.filter(item => {
-      if (!item.id) return false;
-      const duplicate = seenIds.has(item.id);
-      seenIds.add(item.id);
-      return !duplicate;
+    // STRICT DE-DUPLICATION: Use ID map to ensure ghost trades or duplicates don't double P&L
+    const tradeMap = new Map<string, TradeSignal>();
+    combinedData.forEach(item => {
+      if (item.id) tradeMap.set(item.id, item);
     });
 
-    const booked = uniqueTrades.filter(signal => {
+    const booked = Array.from(tradeMap.values()).filter(signal => {
       const status = signal.status;
       return status === TradeStatus.EXITED || status === TradeStatus.STOPPED || status === TradeStatus.ALL_TARGET;
     });
@@ -59,7 +59,6 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     let stockBTST = 0;
 
     booked.forEach(s => {
-      // Use the 'date' column from sheet for grouping and P&L logic
       const tradeDate = s.date || s.timestamp.split('T')[0];
       
       const effectiveQty = (s.quantity && s.quantity > 0) ? s.quantity : 1;
@@ -77,19 +76,16 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
         else stockIntraday += pnl;
       }
 
-      // STRICT VISIBILITY: Only add to display groups if Today or Yesterday
       let groupKey = '';
       if (tradeDate === today) groupKey = 'TODAY';
       else if (tradeDate === yesterday) groupKey = 'YESTERDAY';
       
-      // If within display window, add to group
       if (groupKey) {
         if (!groups[groupKey]) groups[groupKey] = [];
         groups[groupKey].push(s);
       }
     });
 
-    // Sort display groups by timestamp descending
     Object.keys(groups).forEach(key => {
       groups[key].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     });
@@ -166,8 +162,8 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
             <div className="w-20 h-20 bg-slate-800/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-slate-700/50">
               <Calendar size={40} className="text-slate-800" />
             </div>
-            <p className="text-slate-500 font-black uppercase tracking-widest text-sm">No activity in last 48 hours</p>
-            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Cards automatically archive after 2 days. Check P&L Stats for older data.</p>
+            <p className="text-slate-500 font-black uppercase tracking-widest text-sm italic">Terminal Data Verified</p>
+            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Syncing directly from Institutional Sheets.</p>
           </div>
         ) : (
           <div className="space-y-10">
@@ -182,7 +178,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
                    </div>
                    <div className="flex-1 h-px bg-slate-800/50"></div>
                    <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">
-                     {groupedSignals[dateKey].length} TRADES
+                     {groupedSignals[dateKey].length} VERIFIED TRADES
                    </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -193,6 +189,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
                          user={user} 
                          highlights={granularHighlights[signal.id]} 
                          onSignalUpdate={onSignalUpdate}
+                         onSignalDelete={onSignalDelete}
                        />
                     </div>
                   ))}

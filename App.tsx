@@ -9,7 +9,6 @@ import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
-import { MOCK_WATCHLIST, MOCK_SIGNALS } from './constants';
 import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
@@ -42,13 +41,13 @@ const App: React.FC = () => {
   });
 
   const [page, setPage] = useState('dashboard');
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>(MOCK_WATCHLIST);
-  const [signals, setSignals] = useState<TradeSignal[]>(MOCK_SIGNALS);
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
+  const [signals, setSignals] = useState<TradeSignal[]>([]);
   const [historySignals, setHistorySignals] = useState<TradeSignal[]>([]); 
   const [users, setUsers] = useState<User[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('connected');
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('syncing');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
@@ -154,6 +153,8 @@ const App: React.FC = () => {
 
         const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(nowStr);
+        
+        // Destructive Update: Overwrite everything with Sheet truth
         prevSignalsRef.current = [...data.signals];
         prevWatchRef.current = [...data.watchlist];
         
@@ -173,27 +174,25 @@ const App: React.FC = () => {
   }, [playLongBeep]);
 
   const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
+    setConnectionStatus('syncing');
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', updatedSignal, updatedSignal.id);
     if (success) {
-      setSignals(prev => prev.map(s => s.id === updatedSignal.id ? updatedSignal : s));
-      setPage('dashboard');
-      prevSignalsRef.current = prevSignalsRef.current.map(s => s.id === updatedSignal.id ? updatedSignal : s);
+      // Re-fetch immediately to ensure sheet alignment
+      sync(false);
     }
     return success;
-  }, []);
+  }, [sync]);
 
-  const handleSendMessage = async (text: string, isAdminReply: boolean, targetUserId: string) => {
-    const payload = {
-        userId: targetUserId,
-        senderName: isAdminReply ? 'Libra Support' : user?.name || 'Client',
-        text,
-        timestamp: new Date().toISOString(),
-        isAdminReply
-    };
-    const success = await updateSheetData('messages', 'ADD', payload);
-    if (success) sync(false);
-    return success;
-  };
+  const handleSignalDelete = useCallback(async (signal: TradeSignal) => {
+    if (!window.confirm(`Delete ${signal.instrument} ${signal.symbol} permanently?`)) return;
+    setConnectionStatus('syncing');
+    // Determine which tab to delete from
+    const target = (signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL) ? 'signals' : 'history';
+    const success = await updateSheetData(target as any, 'DELETE_SIGNAL', {}, signal.id);
+    if (success) {
+      sync(false);
+    }
+  }, [sync]);
 
   useEffect(() => {
     sync(true);
@@ -260,8 +259,8 @@ const App: React.FC = () => {
         </div>
       )}
       
-      {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
-      {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
+      {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} onSignalDelete={handleSignalDelete} />}
+      {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} onSignalDelete={handleSignalDelete} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && (
@@ -273,8 +272,6 @@ const App: React.FC = () => {
           users={users} 
           onUpdateUsers={setUsers} 
           logs={logs} 
-          messages={messages}
-          onSendMessage={handleSendMessage}
           onNavigate={setPage} 
         />
       )}

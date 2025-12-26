@@ -11,6 +11,7 @@ interface DashboardProps {
   user: User;
   granularHighlights: GranularHighlights;
   onSignalUpdate: (updated: TradeSignal) => Promise<boolean>;
+  onSignalDelete: (signal: TradeSignal) => Promise<void>;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -18,11 +19,11 @@ const Dashboard: React.FC<DashboardProps> = ({
   signals, 
   user, 
   granularHighlights,
-  onSignalUpdate
+  onSignalUpdate,
+  onSignalDelete
 }) => {
   const GRACE_PERIOD_MS = 60 * 1000;
 
-  // Helper to check if a date is Today or Yesterday in IST
   const isTodayOrYesterdayIST = (date: Date) => {
     if (!date || isNaN(date.getTime())) return false;
     const now = new Date();
@@ -47,13 +48,11 @@ const Dashboard: React.FC<DashboardProps> = ({
       const signalDate = new Date(signal.timestamp);
       const isRecent = isTodayOrYesterdayIST(signalDate);
 
-      // Strictly only show Today and Yesterday
       if (!isRecent) return false;
 
       const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
       if (isLive) return true;
 
-      // For closed trades, also check the grace period
       const closeTimeStr = signal.lastTradedTimestamp || signal.timestamp;
       const closeDateObj = new Date(closeTimeStr);
       return (now.getTime() - closeDateObj.getTime()) < GRACE_PERIOD_MS;
@@ -122,15 +121,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <TrendingUp size={16} className="mr-2" />
                 Open Demat
             </a>
-
-            <button className="flex items-center px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg border border-slate-700 transition-colors text-sm font-medium">
-                <Bell size={18} className="mr-2 text-yellow-500" />
-                Alerts
-            </button>
         </div>
       </div>
 
-      {isBannerActive && (
+      {isBannerActive && (latestSignal.status === TradeStatus.ACTIVE || latestSignal.status === TradeStatus.PARTIAL) && (
         <div className="relative group overflow-hidden rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-1">
           <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-40 transition-opacity">
             <Zap size={60} className="text-emerald-500" />
@@ -152,7 +146,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </h3>
               </div>
             </div>
-            <div className="mt-3 sm:mt-0 flex items-center space-x-3">
+            <div className="mt-3 sm:mt-0">
               <button 
                 onClick={() => document.getElementById(`signal-${latestSignal.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                 className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-all shadow-lg shadow-emerald-500/20 uppercase tracking-widest"
@@ -169,8 +163,8 @@ const Dashboard: React.FC<DashboardProps> = ({
               {sortedSignals.length === 0 ? (
                   <div className="text-center py-20 bg-slate-900/50 border border-dashed border-slate-800 rounded-3xl">
                       <Zap size={40} className="mx-auto text-slate-800 mb-4" />
-                      <p className="text-slate-500 font-bold uppercase tracking-widest text-sm italic">No activity in last 48 hours</p>
-                      <p className="text-[10px] text-slate-700 mt-2 uppercase tracking-widest font-mono">Terminal Standby • Monitoring Markets</p>
+                      <p className="text-slate-500 font-bold uppercase tracking-widest text-sm italic">Scanning terminal Truth...</p>
+                      <p className="text-[10px] text-slate-700 mt-2 uppercase tracking-widest font-mono">Monitoring Market Database</p>
                   </div>
               ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -189,6 +183,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 user={user} 
                                 highlights={granularHighlights[signal.id]} 
                                 onSignalUpdate={onSignalUpdate}
+                                onSignalDelete={onSignalDelete}
                                 isRecentlyClosed={isRecentlyClosed}
                             />
                           </div>
@@ -207,29 +202,23 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                 </div>
                 <div className="divide-y divide-slate-800">
-                    {watchlist.length > 0 ? watchlist.map((item, idx) => {
-                        const hasHighlight = !!granularHighlights[item.symbol];
-                        return (
-                            <div 
-                                key={idx} 
-                                className={`p-4 flex items-center justify-between transition-all duration-500 hover:bg-slate-800/50 ${hasHighlight ? 'animate-blink' : ''}`}
-                            >
-                                <div>
-                                    <p className="font-bold text-sm text-slate-200">{item.symbol}</p>
-                                    <div className="flex items-center mt-1 text-slate-500">
-                                        <Clock size={10} className="mr-1" />
-                                        <span className="text-[10px] font-mono">{item.lastUpdated || '--'}</span>
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    <p className="font-mono text-sm text-white font-medium">{Number(item.price || 0).toFixed(2)}</p>
-                                    <p className={`text-xs font-mono mt-0.5 ${item.isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                        {item.isPositive ? '+' : ''}{Number(item.change || 0).toFixed(2)}%
-                                    </p>
+                    {watchlist.length > 0 ? watchlist.map((item, idx) => (
+                        <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-800/50 transition-colors">
+                            <div>
+                                <p className="font-bold text-sm text-slate-200">{item.symbol}</p>
+                                <div className="flex items-center mt-1 text-slate-500">
+                                    <Clock size={10} className="mr-1" />
+                                    <span className="text-[10px] font-mono">{item.lastUpdated || '--'}</span>
                                 </div>
                             </div>
-                        );
-                    }) : (
+                            <div className="text-right">
+                                <p className="font-mono text-sm text-white font-medium">{Number(item.price || 0).toFixed(2)}</p>
+                                <p className={`text-xs font-mono mt-0.5 ${item.isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {item.isPositive ? '+' : ''}{Number(item.change || 0).toFixed(2)}%
+                                </p>
+                            </div>
+                        </div>
+                    )) : (
                         <div className="p-4 text-center text-slate-500 text-sm">
                             Scanning market...
                         </div>
