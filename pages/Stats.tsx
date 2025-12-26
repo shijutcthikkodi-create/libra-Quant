@@ -10,37 +10,19 @@ interface StatsProps {
 }
 
 const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
-  // Helper to get IST components with robustness
-  const getISTDetails = (date: Date) => {
-    if (!date || isNaN(date.getTime())) {
-      return { dateKey: 'INVALID', month: '00', year: '0000' };
-    }
-    try {
-      const formatter = new Intl.DateTimeFormat('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      });
-      const parts = formatter.formatToParts(date);
-      const day = parts.find(p => p.type === 'day')?.value;
-      const month = parts.find(p => p.type === 'month')?.value;
-      const year = parts.find(p => p.type === 'year')?.value;
-      const dateKey = `${year}-${month}-${day}`;
-      return { dateKey, month, year };
-    } catch (e) {
-      return { dateKey: 'INVALID', month: '00', year: '0000' };
-    }
+  const getISTStrings = () => {
+    const now = new Date();
+    const fmt = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+    
+    const today = fmt(now);
+    const monthYear = today.split('-').slice(0, 2).join('-'); // YYYY-MM
+    return { today, monthYear };
   };
 
   const performance = useMemo(() => {
-    const now = new Date();
-    const { dateKey: todayKey, month: currentMonth, year: currentYear } = getISTDetails(now);
-
-    // Merge active session data with historical vault
+    const { today: todayKey, monthYear: currentMonthYear } = getISTStrings();
     const combinedData = [...signals, ...historySignals];
     
-    // Deduplicate by ID to ensure accuracy
     const seenIds = new Set();
     const uniqueTrades = combinedData.filter(item => {
       const duplicate = seenIds.has(item.id);
@@ -55,59 +37,40 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
     let todayPnL = 0;
     let monthPnL = 0;
     
-    // Monthly Grouping logic for rigorous performance calculation
     const monthlySetupGroups: Record<string, number> = {};
     const monthlyIntraGroups: Record<string, number> = {};
     const monthlyBtstGroups: Record<string, number> = {};
     const dailyMap: Record<string, number> = {};
 
-    // Initialize 7-day chart map
+    // Prep 7-day chart slots
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const { dateKey } = getISTDetails(d);
-      if (dateKey !== 'INVALID') {
-        dailyMap[dateKey] = 0;
-      }
+      const dateKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+      dailyMap[dateKey] = 0;
     }
 
     closedTrades.forEach(trade => {
-      const closeTimeStr = trade.lastTradedTimestamp || trade.timestamp;
-      if (!closeTimeStr) return;
+      // Use sheet date first, then fallback to ISO string date part
+      const tradeDate = trade.date || trade.timestamp.split('T')[0];
+      const pnl = trade.pnlRupees !== undefined ? trade.pnlRupees : (trade.pnlPoints || 0) * (trade.quantity || 1);
       
-      const closeDate = new Date(closeTimeStr);
-      const { dateKey, month, year } = getISTDetails(closeDate);
-      if (dateKey === 'INVALID') return;
-
-      const pnl = trade.pnlRupees || 0;
-      
-      // Strict Performance Key (Instrument + Symbol + Type)
       const setupKey = `${trade.instrument}_${trade.symbol}_${trade.type}`.toUpperCase();
       
-      // 1. P&L Net Calculations (Today vs Month)
-      if (dateKey === todayKey) todayPnL += pnl;
+      if (tradeDate === todayKey) todayPnL += pnl;
       
-      // Check if trade belongs to CURRENT month for win-rate inclusion
-      if (month === currentMonth && year === currentYear) {
+      if (tradeDate.startsWith(currentMonthYear)) {
         monthPnL += pnl;
-
-        // Populate Monthly Groups (Strict Win-Rate Data)
         monthlySetupGroups[setupKey] = (monthlySetupGroups[setupKey] || 0) + pnl;
-
-        if (trade.isBTST) {
-          monthlyBtstGroups[setupKey] = (monthlyBtstGroups[setupKey] || 0) + pnl;
-        } else {
-          monthlyIntraGroups[setupKey] = (monthlyIntraGroups[setupKey] || 0) + pnl;
-        }
+        if (trade.isBTST) monthlyBtstGroups[setupKey] = (monthlyBtstGroups[setupKey] || 0) + pnl;
+        else monthlyIntraGroups[setupKey] = (monthlyIntraGroups[setupKey] || 0) + pnl;
       }
 
-      // Update Daily Chart Map (Always shows last 7 days)
-      if (dailyMap[dateKey] !== undefined) {
-        dailyMap[dateKey] += pnl;
+      if (dailyMap[tradeDate] !== undefined) {
+        dailyMap[tradeDate] += pnl;
       }
     });
 
-    // Monthly Logic Helper
     const calculateWinRate = (groups: Record<string, number>) => {
       const outcomes = Object.values(groups);
       const wins = outcomes.filter(pnl => pnl > 0).length;
@@ -121,13 +84,13 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
       intradayWinRate: calculateWinRate(monthlyIntraGroups),
       btstWinRate: calculateWinRate(monthlyBtstGroups),
       chartData: Object.entries(dailyMap).map(([date, value]) => ({
-        date: date === 'INVALID' ? '--' : date.split('-').slice(1).reverse().join('/'),
+        date: date.split('-').slice(1).reverse().join('/'),
         pnl: value
       })),
       totalSetups: Object.keys(monthlySetupGroups).length,
       totalIntra: Object.keys(monthlyIntraGroups).length,
       totalBTST: Object.keys(monthlyBtstGroups).length,
-      currentMonthLabel: new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(now)
+      currentMonthLabel: new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date())
     };
   }, [signals, historySignals]);
 

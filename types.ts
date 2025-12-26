@@ -20,6 +20,7 @@ export enum OptionType {
 
 export interface TradeSignal {
   id: string;
+  date?: string; // Format: YYYY-MM-DD
   instrument: string;
   symbol: string;
   type: OptionType;

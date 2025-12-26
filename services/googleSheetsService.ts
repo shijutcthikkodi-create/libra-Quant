@@ -49,7 +49,6 @@ const isTrue = (val: any): boolean => {
   if (val === true) return true;
   if (typeof val === 'number') return val === 1;
   const s = String(val || '').toUpperCase().trim();
-  // Expanded to handle "BTST" as a truthy value itself if placed in a boolean column
   return ['TRUE', 'YES', '1', 'Y', 'BTST', 'B.T.S.T', 'OVERNIGHT'].includes(s);
 };
 
@@ -62,6 +61,22 @@ const normalizeStatus = (val: any): TradeStatus => {
   if (s.includes('STOP') || s.includes('SL HIT') || s.includes('LOSS') || s.includes('STOPPED')) return TradeStatus.STOPPED;
   if (s.includes('EXIT') || s.includes('CLOSE') || s.includes('SQUARE')) return TradeStatus.EXITED;
   return TradeStatus.ACTIVE;
+};
+
+const parseSheetDate = (val: any): string | undefined => {
+  if (!val) return undefined;
+  let dStr = String(val).trim();
+  // If it's DD-MM-YYYY, convert to YYYY-MM-DD
+  if (/^\d{2}-\d{2}-\d{4}$/.test(dStr)) {
+    const [d, m, y] = dStr.split('-');
+    return `${y}-${m}-${d}`;
+  }
+  // If it's a date object string from sheets
+  const d = new Date(dStr);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString().split('T')[0];
+  }
+  return undefined;
 };
 
 const parseSignalRow = (s: any, index: number): TradeSignal | null => {
@@ -84,12 +99,13 @@ const parseSignalRow = (s: any, index: number): TradeSignal | null => {
     });
   }
 
-  // Look for BTST flag in multiple common column naming conventions
   const btstVal = getVal(s, 'isBTST') || getVal(s, 'btst') || getVal(s, 'is_btst') || getVal(s, 'type');
+  const dateStr = parseSheetDate(getVal(s, 'date'));
 
   return {
     ...s,
     id: getVal(s, 'id') ? String(getVal(s, 'id')).trim() : `SIG-${index}`,
+    date: dateStr,
     instrument,
     symbol,
     entryPrice: getNum(s, 'entryPrice') || 0,
@@ -133,15 +149,6 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
       deviceId: getVal(u, 'deviceId') ? String(getVal(u, 'deviceId')) : null
     }));
 
-    const formattedMessages = (data.messages || []).map((m: any) => ({
-      id: String(getVal(m, 'id') || Math.random()),
-      userId: String(getVal(m, 'userId') || getVal(m, 'uid') || '').trim(),
-      senderName: String(getVal(m, 'senderName') || 'Subscriber'),
-      text: String(getVal(m, 'text') || '').trim(),
-      timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
-      isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
-    })).filter((m: any) => m.userId && m.text);
-
     return { 
       signals: (data.signals || []).map((s: any, i: number) => ({ ...parseSignalRow(s, i), sheetIndex: i })).filter((s: any) => s !== null),
       history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i)).filter((s: any) => s !== null),
@@ -161,7 +168,13 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         details: getVal(l, 'details') || '',
         type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
       })),
-      messages: formattedMessages
+      messages: (data.messages || []).map((m: any) => ({
+        id: String(getVal(m, 'id') || Math.random()),
+        userId: String(getVal(m, 'userId') || '').trim(),
+        text: String(getVal(m, 'text') || '').trim(),
+        timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
+        isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
+      }))
     };
   } catch (error) {
     if (retries > 0) return fetchSheetData(retries - 1);
