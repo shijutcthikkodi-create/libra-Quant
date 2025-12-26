@@ -9,7 +9,7 @@ import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
@@ -154,7 +154,6 @@ const App: React.FC = () => {
         const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(nowStr);
         
-        // Destructive Update: Overwrite everything with Sheet truth
         prevSignalsRef.current = [...data.signals];
         prevWatchRef.current = [...data.watchlist];
         
@@ -173,26 +172,53 @@ const App: React.FC = () => {
     }
   }, [playLongBeep]);
 
+  /**
+   * Hard Reset: Clears local refs to ensure no ghost trades remain in local memory.
+   * Forces a clean state pull from Google Sheets.
+   */
+  const handleHardSync = useCallback(async () => {
+    prevSignalsRef.current = [];
+    prevWatchRef.current = [];
+    setSignals([]);
+    setHistorySignals([]);
+    setWatchlist([]);
+    await sync(true);
+  }, [sync]);
+
   const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
     setConnectionStatus('syncing');
     const success = await updateSheetData('signals', 'UPDATE_SIGNAL', updatedSignal, updatedSignal.id);
     if (success) {
-      // Re-fetch immediately to ensure sheet alignment
       sync(false);
     }
     return success;
   }, [sync]);
 
   const handleSignalDelete = useCallback(async (signal: TradeSignal) => {
-    if (!window.confirm(`Delete ${signal.instrument} ${signal.symbol} permanently?`)) return;
+    if (!window.confirm(`Delete ${signal.instrument} ${signal.symbol} permanently from sheet?`)) return;
+    
     setConnectionStatus('syncing');
-    // Determine which tab to delete from
     const target = (signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL) ? 'signals' : 'history';
+    
     const success = await updateSheetData(target as any, 'DELETE_SIGNAL', {}, signal.id);
     if (success) {
       sync(false);
+    } else {
+      alert("Remote delete failed. Use Hard Refresh.");
+      sync(false);
     }
   }, [sync]);
+
+  const handleClearHistory = useCallback(async () => {
+    if (!window.confirm("CRITICAL: Wipe ENTIRE History Vault in Sheet?")) return;
+    setConnectionStatus('syncing');
+    const success = await updateSheetData('history', 'CLEAR_HISTORY', {});
+    if (success) {
+      handleHardSync();
+    } else {
+      sync(false);
+    }
+  }, [handleHardSync]);
 
   useEffect(() => {
     sync(true);
@@ -234,13 +260,22 @@ const App: React.FC = () => {
                  <span className={`${connectionStatus === 'error' ? 'text-rose-400' : 'text-white'} font-mono`}>{lastSyncTime}</span>
               </div>
           </div>
-          <button 
-            onClick={() => sync(false)} 
-            disabled={connectionStatus === 'syncing'}
-            className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}
-          >
-             {connectionStatus === 'error' ? <WifiOff size={14} /> : <RefreshCw size={14} className={connectionStatus === 'syncing' ? 'animate-spin' : ''} />}
-          </button>
+          <div className="flex space-x-1">
+            <button 
+                onClick={handleHardSync} 
+                title="Force Sheet Reload (Clear Ghosts)"
+                className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20"
+            >
+                <Database size={14} />
+            </button>
+            <button 
+                onClick={() => sync(false)} 
+                disabled={connectionStatus === 'syncing'}
+                className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}
+            >
+                {connectionStatus === 'error' ? <WifiOff size={14} /> : <RefreshCw size={14} className={connectionStatus === 'syncing' ? 'animate-spin' : ''} />}
+            </button>
+          </div>
         </div>
 
         <button 
@@ -260,7 +295,7 @@ const App: React.FC = () => {
       )}
       
       {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} onSignalDelete={handleSignalDelete} />}
-      {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} onSignalDelete={handleSignalDelete} />}
+      {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} onSignalDelete={handleSignalDelete} onClearHistory={handleClearHistory} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && (
@@ -273,6 +308,7 @@ const App: React.FC = () => {
           onUpdateUsers={setUsers} 
           logs={logs} 
           onNavigate={setPage} 
+          onHardSync={handleHardSync}
         />
       )}
 

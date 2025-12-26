@@ -63,26 +63,28 @@ const normalizeStatus = (val: any): TradeStatus => {
   return TradeStatus.ACTIVE;
 };
 
-const parseSheetDate = (val: any): string | undefined => {
-  if (!val) return undefined;
-  let dStr = String(val).trim();
-  if (/^\d{2}-\d{2}-\d{4}$/.test(dStr)) {
-    const [d, m, y] = dStr.split('-');
-    return `${y}-${m}-${d}`;
-  }
-  const d = new Date(dStr);
-  if (!isNaN(d.getTime())) {
-    return d.toISOString().split('T')[0];
-  }
-  return undefined;
+/**
+ * Enhanced Fingerprinting:
+ * Prevents "Ghost Trades" by creating a hash that includes row index.
+ * Even if two trades are identical, their different row positions make them unique.
+ */
+const generateTradeFingerprint = (s: any, index: number, tab: string): string => {
+  const inst = String(getVal(s, 'instrument') || '').trim().toUpperCase();
+  const sym = String(getVal(s, 'symbol') || '').trim().toUpperCase();
+  const entry = Number(getVal(s, 'entryPrice') || 0).toFixed(2);
+  const time = String(getVal(s, 'timestamp') || '').trim();
+  
+  // Tab and Index are key to separating ghosts on same timestamp
+  const rawId = `${tab}-${index}-${inst}-${sym}-${entry}-${time}`;
+  return btoa(rawId).replace(/[^a-zA-Z0-9]/g, '').slice(-16);
 };
 
 const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | null => {
   const instrument = String(getVal(s, 'instrument') || '').trim();
   const symbol = String(getVal(s, 'symbol') || '').trim();
+  const entryPrice = getNum(s, 'entryPrice');
   
-  // STRICT VALIDATION: Ignore empty or junk rows
-  if (!instrument || !symbol || instrument.length < 2) return null;
+  if (!instrument || !symbol || instrument.length < 2 || entryPrice === undefined || entryPrice === 0) return null;
 
   const rawTargets = getVal(s, 'targets');
   let parsedTargets: number[] = [];
@@ -99,40 +101,35 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
     });
   }
 
-  const btstVal = getVal(s, 'isBTST') || getVal(s, 'btst') || getVal(s, 'is_btst') || getVal(s, 'type');
-  const dateStr = parseSheetDate(getVal(s, 'date'));
-
-  // UNIQUE ID: Prevent collision between tabs which breaks P&L
   const explicitId = getVal(s, 'id');
-  const id = explicitId ? String(explicitId).trim() : `${tabName}-${index}`;
+  const id = explicitId ? String(explicitId).trim() : generateTradeFingerprint(s, index, tabName);
 
   return {
     ...s,
     id,
-    date: dateStr,
     instrument,
     symbol,
-    entryPrice: getNum(s, 'entryPrice') || 0,
+    entryPrice: entryPrice,
     stopLoss: getNum(s, 'stopLoss') || 0,
     targets: parsedTargets,
     targetsHit: getNum(s, 'targetsHit') || 0, 
+    trailingSL: getNum(s, 'trailingSL') ?? null,
     action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
     status: normalizeStatus(getVal(s, 'status')),
     pnlPoints: getNum(s, 'pnlPoints') || 0,
     pnlRupees: getNum(s, 'pnlRupees'),
-    trailingSL: getNum(s, 'trailingSL') ?? null,
     comment: String(getVal(s, 'comment') || ''),
     timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
     quantity: getNum(s, 'quantity') || 0,
     cmp: getNum(s, 'cmp') || 0,
-    isBTST: isTrue(btstVal)
+    isBTST: isTrue(getVal(s, 'isBTST') || getVal(s, 'btst') || getVal(s, 'type'))
   };
 };
 
 export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => {
   if (!SCRIPT_URL) return null;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); 
+  const timeoutId = setTimeout(() => controller.abort(), 25000); 
 
   try {
     const v = Date.now();
@@ -143,8 +140,12 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
     const data = robustParseJson(await response.text());
     
     return { 
-      signals: (data.signals || []).map((s: any, i: number) => ({ ...parseSignalRow(s, i, 'SIG'), sheetIndex: i })).filter((s: any) => s !== null),
-      history: (data.history || []).map((s: any, i: number) => parseSignalRow(s, i, 'HIST')).filter((s: any) => s !== null),
+      signals: (data.signals || [])
+        .map((s: any, i: number) => ({ ...parseSignalRow(s, i, 'SIG'), sheetIndex: i }))
+        .filter((s: any) => s !== null) as (TradeSignal & { sheetIndex: number })[],
+      history: (data.history || [])
+        .map((s: any, i: number) => parseSignalRow(s, i, 'HIST'))
+        .filter((s: any) => s !== null) as TradeSignal[],
       watchlist: (data.watchlist || []).map((w: any) => ({ 
         ...w, 
         symbol: String(getVal(w, 'symbol') || ''),
@@ -155,7 +156,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
       })).filter((w: any) => w.symbol),
       users: (data.users || []).map((u: any) => ({
         ...u,
-        id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim() || String(getVal(u, 'phoneNumber') || ''),
+        id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim(),
         name: String(getVal(u, 'name') || 'Client'),
         phoneNumber: String(getVal(u, 'phoneNumber') || ''),
         expiryDate: String(getVal(u, 'expiryDate') || ''),
@@ -191,7 +192,7 @@ export const updateSheetData = async (target: 'signals' | 'history' | 'watchlist
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ target, action, payload, id })
     });
-    return true;
+    return true; 
   } catch (error) { 
     return false; 
   }
