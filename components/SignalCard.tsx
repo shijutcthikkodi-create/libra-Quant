@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Trash2 } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Moon } from 'lucide-react';
 import { TradeSignal, TradeStatus, OptionType, User } from '../types';
 import { analyzeTradeSignal } from '../services/geminiService';
 
@@ -9,11 +9,10 @@ interface SignalCardProps {
   user: User;
   highlights?: Set<string>;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
-  onSignalDelete?: (signal: TradeSignal) => Promise<void>;
   isRecentlyClosed?: boolean;
 }
 
-const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, onSignalDelete, isRecentlyClosed }) => {
+const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, isRecentlyClosed }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   
@@ -34,6 +33,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
   const isExited = signal.status === TradeStatus.EXITED || signal.status === TradeStatus.STOPPED || signal.status === TradeStatus.ALL_TARGET;
   const isSLHit = signal.status === TradeStatus.STOPPED;
   const isAllTarget = signal.status === TradeStatus.ALL_TARGET;
+  const isBTST = !!signal.isBTST;
   const isTSLHit = isExited && !isAllTarget && (signal.comment?.toUpperCase().includes('TSL') || (signal.status === TradeStatus.EXITED && (signal.pnlPoints || 0) > 0 && signal.comment?.toUpperCase().includes('TRAILING')));
   const canEdit = user.isAdmin && !isExited;
 
@@ -106,8 +106,6 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
     }
   }
   
-  const riskGrade = riskReward >= 2.5 ? 'A+' : riskReward >= 1.5 ? 'B' : 'C-';
-
   const getStampContent = () => {
     if (isAllTarget) return { text: 'COMPLETED', color: 'text-emerald-500' };
     if (isSLHit) return { text: 'SL SEALED', color: 'text-rose-500' };
@@ -118,8 +116,21 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
   const stamp = getStampContent();
 
   return (
-    <div className={`relative bg-slate-900 border rounded-xl overflow-hidden transition-all duration-500 ${isActive ? 'border-slate-700 shadow-xl' : isAllTarget ? 'border-emerald-500/30 shadow-emerald-500/5' : 'border-slate-800 opacity-90'} ${isRecentlyClosed ? 'opacity-30 grayscale-[0.8]' : ''}`}>
+    <div className={`relative bg-slate-900 border rounded-xl overflow-hidden transition-all duration-500 
+      ${isActive ? (isBTST ? 'border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'border-slate-700 shadow-xl') : isBTST ? 'border-amber-500/20' : 'border-slate-800 opacity-90'} 
+      ${isRecentlyClosed ? 'opacity-30 grayscale-[0.8]' : ''}
+      ${isBTST ? 'bg-gradient-to-br from-slate-900 to-amber-950/10' : ''}
+    `}>
       
+      {/* Permanent BTST Ribbon */}
+      {isBTST && (
+        <div className="absolute top-0 right-0 z-20 overflow-hidden w-24 h-24 pointer-events-none">
+          <div className="bg-amber-500 text-slate-950 text-[10px] font-black py-1 w-[140%] text-center transform rotate-45 translate-x-[20%] translate-y-[40%] shadow-lg border-b border-amber-600">
+            OVERNIGHT
+          </div>
+        </div>
+      )}
+
       {isRecentlyClosed && (
         <div className="absolute inset-0 z-[100] bg-slate-950/20 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
            <div className={`status-stamp ${stamp.color}`}>
@@ -163,9 +174,9 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                     {signal.action}
                 </span>
                 <h3 className={`text-xl font-bold text-white tracking-tight font-mono ${highlights?.has('instrument') ? 'animate-blink' : ''}`}>{signal.instrument}</h3>
-                {signal.isBTST && (
-                  <div className={`flex items-center px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-[9px] font-black text-amber-500`}>
-                    <Clock size={10} className="mr-1" /> BTST
+                {isBTST && (
+                  <div className={`flex items-center px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[9px] font-black shadow-lg ${isActive ? 'animate-pulse' : ''}`}>
+                    <Moon size={10} className="mr-1" /> BTST
                   </div>
                 )}
             </div>
@@ -177,16 +188,8 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end space-y-1.5">
+        <div className="flex flex-col items-end space-y-1.5 pr-2">
             <div className="flex items-center space-x-2">
-              {user.isAdmin && onSignalDelete && (
-                <button 
-                  onClick={() => onSignalDelete(signal)}
-                  className="p-1.5 text-slate-600 hover:text-rose-500 transition-colors"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
               <div className={`px-3 py-1 rounded text-[10px] font-bold border ${getStatusColor(signal.status)} flex items-center`}>
                   {isAllTarget ? <Trophy size={10} className="mr-2" /> : <span className={`w-1.5 h-1.5 rounded-full mr-2 ${isActive ? 'bg-current' : 'bg-current opacity-50'}`}></span>}
                   {signal.status}
@@ -212,7 +215,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             ) : null}
         </div>
         
-        <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : 'bg-slate-900'}`}>
+        <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : (isBTST ? 'bg-amber-500/5' : 'bg-slate-900')}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Stop Loss</p>
             <p className={`text-xl font-mono font-bold mb-3 ${highlights?.has('stopLoss') || isSLHit ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
               ₹{signal.stopLoss.toFixed(2)}
@@ -244,15 +247,15 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             </div>
         </div>
 
-        <div className={`p-4 border-l border-slate-800 transition-all duration-700 ${isActive ? 'bg-slate-900 shadow-inner' : 'bg-slate-900/50'}`}>
+        <div className={`p-4 border-l border-slate-800 transition-all duration-700 ${isActive ? (isBTST ? 'bg-amber-950/20 shadow-inner' : 'bg-slate-900 shadow-inner') : 'bg-slate-900/50'}`}>
             <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center">
-                  <Activity size={10} className="mr-1 text-blue-500" /> CMP
+                  <Activity size={10} className={`mr-1 ${isBTST ? 'text-amber-500' : 'text-blue-500'}`} /> CMP
                 </p>
                 {isActive && (
-                  <div className="flex items-center space-x-1 bg-emerald-500/10 border border-emerald-500/30 px-1 py-0.5 rounded animate-pulse">
-                     <span className="w-1 h-1 rounded-full bg-emerald-500"></span>
-                     <span className="text-[8px] font-black text-emerald-500 uppercase tracking-tighter">LIVE</span>
+                  <div className={`flex items-center space-x-1 ${isBTST ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30'} border px-1 py-0.5 rounded animate-pulse`}>
+                     <span className={`w-1 h-1 rounded-full ${isBTST ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+                     <span className={`text-[8px] font-black ${isBTST ? 'text-amber-500' : 'text-emerald-500'} uppercase tracking-tighter`}>LIVE</span>
                   </div>
                 )}
             </div>
@@ -317,8 +320,8 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         </div>
 
         {signal.comment && (
-            <div className={`mt-4 p-3 rounded-lg border transition-colors ${isSLHit || isTSLHit ? 'bg-rose-950/20 border-rose-500/30' : isAllTarget ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-slate-950/50 border-slate-800/50'}`}>
-                <p className={`text-xs leading-relaxed ${isSLHit || isTSLHit ? 'text-rose-400 font-bold' : isAllTarget ? 'text-emerald-400 font-bold italic' : 'text-slate-400'}`}>
+            <div className={`mt-4 p-3 rounded-lg border transition-colors ${isSLHit || isTSLHit ? 'bg-rose-950/20 border-rose-500/30' : isAllTarget ? 'bg-emerald-950/20 border-emerald-500/30' : (isBTST ? 'bg-amber-950/20 border-amber-500/30' : 'bg-slate-950/50 border-slate-800/50')}`}>
+                <p className={`text-xs leading-relaxed ${isSLHit || isTSLHit ? 'text-rose-400 font-bold' : isAllTarget ? 'text-emerald-400 font-bold italic' : (isBTST ? 'text-amber-400 font-bold' : 'text-slate-400')}`}>
                   " {signal.comment} "
                 </p>
             </div>

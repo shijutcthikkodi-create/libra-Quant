@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff, ExternalLink, TrendingUp, ShieldCheck } from 'lucide-react';
+import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff, ExternalLink, TrendingUp, ShieldCheck, MessageSquare } from 'lucide-react';
 import { User } from '../types';
 import { SEBI_DISCLAIMER, FOOTER_TEXT, BRANDING_TEXT } from '../constants';
 
@@ -183,6 +183,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
           <NavItem page="dashboard" icon={Radio} label="Live Signals" />
           <NavItem page="booked" icon={CheckCircle} label="Booked Trades" />
           <NavItem page="stats" icon={BarChart2} label="P&L Analytics" />
+          <NavItem page="support" icon={MessageSquare} label="Support Desk" />
           <NavItem page="rules" icon={ShieldAlert} label="Rules & Disclaimer" />
           {user?.isAdmin && <NavItem page="admin" icon={FileText} label="Admin Panel" />}
         </nav>

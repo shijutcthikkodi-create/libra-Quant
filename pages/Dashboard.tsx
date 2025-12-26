@@ -1,7 +1,7 @@
 
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import SignalCard from '../components/SignalCard';
-import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp } from 'lucide-react';
+import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon } from 'lucide-react';
 import { WatchlistItem, TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
@@ -59,38 +59,40 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [signals]);
 
+  /**
+   * STABLE ACTIVITY SORTING: 
+   * Prioritizes the most recently touched trade.
+   * When a trade is closed, the 'lastTradedTimestamp' is updated, 
+   * causing it to automatically move to the top.
+   */
   const sortedSignals = useMemo(() => {
     return [...liveSignals].sort((a, b) => {
-      const timeA = new Date(a.timestamp).getTime();
-      const timeB = new Date(b.timestamp).getTime();
-      if (timeA !== timeB) return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+      // Calculate latest interaction time for A
+      const activityA = Math.max(
+        new Date(a.timestamp).getTime(), 
+        new Date(a.lastTradedTimestamp || 0).getTime()
+      );
+      
+      // Calculate latest interaction time for B
+      const activityB = Math.max(
+        new Date(b.timestamp).getTime(), 
+        new Date(b.lastTradedTimestamp || 0).getTime()
+      );
+      
+      if (activityA !== activityB) {
+        return (isNaN(activityB) ? 0 : activityB) - (isNaN(activityA) ? 0 : activityA);
+      }
+      
+      // Tie-breakers for stability
       const indexA = a.sheetIndex ?? 0;
       const indexB = b.sheetIndex ?? 0;
-      return indexB - indexA;
+      if (indexA !== indexB) return indexB - indexA;
+      
+      return b.id.localeCompare(a.id);
     });
   }, [liveSignals]);
 
   const latestSignal = sortedSignals[0];
-  const lastScrolledId = useRef<string | null>(null);
-
-  useEffect(() => {
-    const updatedIds = Object.keys(granularHighlights).filter(id => 
-      liveSignals.some(s => s.id === id)
-    );
-    
-    if (updatedIds.length > 0) {
-      const targetId = updatedIds[0];
-      if (lastScrolledId.current !== targetId) {
-        const element = document.getElementById(`signal-${targetId}`);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          lastScrolledId.current = targetId;
-          setTimeout(() => { lastScrolledId.current = null; }, 2000);
-        }
-      }
-    }
-  }, [granularHighlights, liveSignals]);
-
   const isBannerActive = latestSignal && (latestSignal.status === TradeStatus.ACTIVE || latestSignal.status === TradeStatus.PARTIAL);
 
   return (
@@ -124,19 +126,21 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {isBannerActive && (latestSignal.status === TradeStatus.ACTIVE || latestSignal.status === TradeStatus.PARTIAL) && (
-        <div className="relative group overflow-hidden rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-1">
+      {isBannerActive && (
+        <div className={`relative group overflow-hidden rounded-xl border ${latestSignal.isBTST ? 'border-amber-500/50' : 'border-emerald-500/30'} ${latestSignal.isBTST ? 'bg-amber-500/5' : 'bg-emerald-500/5'} p-1`}>
           <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-40 transition-opacity">
-            <Zap size={60} className="text-emerald-500" />
+            {latestSignal.isBTST ? <Moon size={60} className="text-amber-500" /> : <Zap size={60} className="text-emerald-500" />}
           </div>
-          <div className="bg-slate-950/80 backdrop-blur-sm rounded-lg p-4 flex flex-col sm:row items-start sm:items-center justify-between border border-emerald-500/20">
+          <div className={`bg-slate-950/80 backdrop-blur-sm rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between border ${latestSignal.isBTST ? 'border-amber-500/20' : 'border-emerald-500/20'}`}>
             <div className="flex items-center space-x-4">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 animate-pulse">
-                <Zap size={20} fill="currentColor" />
+              <div className={`w-10 h-10 rounded-full ${latestSignal.isBTST ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'} flex items-center justify-center animate-pulse`}>
+                {latestSignal.isBTST ? <Moon size={20} fill="currentColor" /> : <Zap size={20} fill="currentColor" />}
               </div>
               <div>
                 <div className="flex items-center space-x-2">
-                  <span className="text-[10px] font-black bg-emerald-500 text-slate-950 px-1.5 py-0.5 rounded uppercase tracking-tighter">Latest Update</span>
+                  <span className={`text-[10px] font-black ${latestSignal.isBTST ? 'bg-amber-500' : 'bg-emerald-500'} text-slate-950 px-1.5 py-0.5 rounded uppercase tracking-tighter`}>
+                    {latestSignal.isBTST ? 'LATEST BTST' : 'LATEST INTRADAY'}
+                  </span>
                   <span className="text-xs font-mono text-slate-500">
                     {new Date(latestSignal.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
                   </span>
@@ -149,7 +153,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="mt-3 sm:mt-0">
               <button 
                 onClick={() => document.getElementById(`signal-${latestSignal.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition-all shadow-lg shadow-emerald-500/20 uppercase tracking-widest"
+                className={`px-4 py-2 ${latestSignal.isBTST ? 'bg-amber-500 hover:bg-amber-400' : 'bg-emerald-500 hover:bg-emerald-400'} text-slate-950 font-bold text-xs rounded-lg transition-all shadow-lg ${latestSignal.isBTST ? 'shadow-amber-500/20' : 'shadow-emerald-500/20'} uppercase tracking-widest`}
               >
                 View Details
               </button>

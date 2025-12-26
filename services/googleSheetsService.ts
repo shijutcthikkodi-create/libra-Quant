@@ -38,18 +38,21 @@ const getVal = (obj: any, targetKey: string): any => {
   return undefined;
 };
 
+// Robust numeric parser that strips currency symbols, commas, and spaces
 const getNum = (obj: any, key: string): number | undefined => {
-  const val = getVal(obj, key);
+  let val = getVal(obj, key);
   if (val === undefined || val === null || String(val).trim() === '') return undefined;
-  const n = Number(val);
+  
+  // Strip ₹, commas, and any non-numeric chars except . and -
+  const cleanVal = String(val).replace(/[^\d.-]/g, '');
+  const n = parseFloat(cleanVal);
   return isNaN(n) ? undefined : n;
 };
 
 const isTrue = (val: any): boolean => {
-  if (val === true) return true;
-  if (typeof val === 'number') return val === 1;
+  if (val === true || val === 1 || val === '1') return true;
   const s = String(val || '').toUpperCase().trim();
-  return ['TRUE', 'YES', '1', 'Y', 'BTST', 'B.T.S.T', 'OVERNIGHT'].includes(s);
+  return ['TRUE', 'YES', 'Y', 'BTST', 'B.T.S.T', 'OVERNIGHT'].includes(s);
 };
 
 const normalizeStatus = (val: any): TradeStatus => {
@@ -73,40 +76,32 @@ const generateTradeFingerprint = (s: any, index: number, tab: string): string =>
   return btoa(rawId).replace(/[^a-zA-Z0-9]/g, '').slice(-16);
 };
 
-/**
- * Normalizes dates coming from Sheet strings (YYYY-MM-DD or DD-MM-YYYY)
- * to standard ISO-like strings (YYYY-MM-DD) for grouping logic.
- */
 const normalizeDateStr = (dateVal: any): string | undefined => {
   if (!dateVal) return undefined;
   let s = String(dateVal).trim();
   if (!s) return undefined;
 
-  // Handle DD-MM-YYYY or DD/MM/YYYY
   if (s.includes('-') || s.includes('/')) {
     const separator = s.includes('-') ? '-' : '/';
     const parts = s.split(separator);
     if (parts.length === 3) {
-      // If it looks like DD-MM-YYYY (parts[0] is 2 chars, parts[2] is 4)
       if (parts[0].length <= 2 && parts[2].length === 4) {
         return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
       }
-      // If it looks like YYYY-MM-DD
       if (parts[0].length === 4) {
         return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
       }
     }
   }
 
-  // Fallback to split timestamp if it's an ISO string
   if (s.includes('T')) return s.split('T')[0];
-  
   return s;
 };
 
 const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | null => {
   const instrument = String(getVal(s, 'instrument') || '').trim();
   const symbol = String(getVal(s, 'symbol') || '').trim();
+  const comment = String(getVal(s, 'comment') || '').trim();
   const entryPrice = getNum(s, 'entryPrice');
   
   if (!instrument || !symbol || instrument.length < 2 || entryPrice === undefined || entryPrice === 0) return null;
@@ -129,6 +124,15 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
   const explicitId = getVal(s, 'id');
   const id = explicitId ? String(explicitId).trim() : generateTradeFingerprint(s, index, tabName);
 
+  // Expanded BTST check to catch mentions in Instrument or Comments
+  const typeVal = String(getVal(s, 'type') || '').trim();
+  const btstFlagRaw = getVal(s, 'isBTST') || getVal(s, 'btst');
+  const isBtstCalculated = isTrue(btstFlagRaw) || 
+                           isTrue(typeVal) || 
+                           instrument.toUpperCase().includes('BTST') || 
+                           symbol.toUpperCase().includes('BTST') || 
+                           comment.toUpperCase().includes('BTST');
+
   return {
     ...s,
     id,
@@ -143,12 +147,12 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
     status: normalizeStatus(getVal(s, 'status')),
     pnlPoints: getNum(s, 'pnlPoints') || 0,
     pnlRupees: getNum(s, 'pnlRupees'),
-    comment: String(getVal(s, 'comment') || ''),
+    comment: comment,
     timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
     date: normalizeDateStr(getVal(s, 'date')) || getVal(s, 'timestamp')?.split('T')[0],
     quantity: getNum(s, 'quantity') || 0,
     cmp: getNum(s, 'cmp') || 0,
-    isBTST: isTrue(getVal(s, 'isBTST') || getVal(s, 'btst') || getVal(s, 'type'))
+    isBTST: isBtstCalculated
   };
 };
 

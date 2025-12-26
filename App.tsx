@@ -7,9 +7,10 @@ import Stats from './pages/Stats';
 import Rules from './pages/Rules';
 import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
+import Support from './pages/Support';
 import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database, MessageSquare } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
@@ -146,7 +147,7 @@ const App: React.FC = () => {
           setGranularHighlights(currentHighlights);
           highlightTimeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
 
-          if (hasSignalChanges) {
+          if (hasSignalChanges && page !== 'dashboard' && page !== 'support') {
             setPage('dashboard');
           }
         }
@@ -170,12 +171,8 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playLongBeep]);
+  }, [playLongBeep, page]);
 
-  /**
-   * Hard Reset: Clears local refs to ensure no ghost trades remain in local memory.
-   * Forces a clean state pull from Google Sheets.
-   */
   const handleHardSync = useCallback(async () => {
     prevSignalsRef.current = [];
     prevWatchRef.current = [];
@@ -195,30 +192,12 @@ const App: React.FC = () => {
   }, [sync]);
 
   const handleSignalDelete = useCallback(async (signal: TradeSignal) => {
-    if (!window.confirm(`Delete ${signal.instrument} ${signal.symbol} permanently from sheet?`)) return;
-    
+    if (!window.confirm(`Delete ${signal.instrument} ${signal.symbol} permanently?`)) return;
     setConnectionStatus('syncing');
     const target = (signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL) ? 'signals' : 'history';
-    
     const success = await updateSheetData(target as any, 'DELETE_SIGNAL', {}, signal.id);
-    if (success) {
-      sync(false);
-    } else {
-      alert("Remote delete failed. Use Hard Refresh.");
-      sync(false);
-    }
+    if (success) sync(false);
   }, [sync]);
-
-  const handleClearHistory = useCallback(async () => {
-    if (!window.confirm("CRITICAL: Wipe ENTIRE History Vault in Sheet?")) return;
-    setConnectionStatus('syncing');
-    const success = await updateSheetData('history', 'CLEAR_HISTORY', {});
-    if (success) {
-      handleHardSync();
-    } else {
-      sync(false);
-    }
-  }, [handleHardSync]);
 
   useEffect(() => {
     sync(true);
@@ -261,56 +240,25 @@ const App: React.FC = () => {
               </div>
           </div>
           <div className="flex space-x-1">
-            <button 
-                onClick={handleHardSync} 
-                title="Force Sheet Reload (Clear Ghosts)"
-                className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20"
-            >
+            <button onClick={handleHardSync} title="Hard Sync" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
                 <Database size={14} />
             </button>
-            <button 
-                onClick={() => sync(false)} 
-                disabled={connectionStatus === 'syncing'}
-                className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}
-            >
+            <button onClick={() => sync(false)} disabled={connectionStatus === 'syncing'} className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}>
                 {connectionStatus === 'error' ? <WifiOff size={14} /> : <RefreshCw size={14} className={connectionStatus === 'syncing' ? 'animate-spin' : ''} />}
             </button>
           </div>
         </div>
-
-        <button 
-          onClick={toggleSound} 
-          className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
-          title="Toggle Alert Sounds"
-        >
+        <button onClick={toggleSound} className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-emerald-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
           {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
         </button>
       </div>
 
-      {connectionStatus === 'error' && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] bg-rose-600 text-white px-4 py-2 rounded-full text-xs font-bold shadow-2xl flex items-center animate-bounce">
-            <ShieldAlert size={14} className="mr-2" />
-            Network Unstable - Retrying Connection...
-        </div>
-      )}
-      
       {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} onSignalDelete={handleSignalDelete} />}
-      {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} onSignalDelete={handleSignalDelete} onClearHistory={handleClearHistory} />}
+      {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={handleSignalUpdate} />}
+      {page === 'support' && <Support user={user} messages={messages} onRefresh={() => sync(false)} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
-      {user?.isAdmin && page === 'admin' && (
-        <Admin 
-          watchlist={watchlist} 
-          onUpdateWatchlist={setWatchlist} 
-          signals={signals} 
-          onUpdateSignals={setSignals} 
-          users={users} 
-          onUpdateUsers={setUsers} 
-          logs={logs} 
-          onNavigate={setPage} 
-          onHardSync={handleHardSync}
-        />
-      )}
+      {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} messages={messages} onNavigate={setPage} onHardSync={handleHardSync} onRefresh={() => sync(false)} />}
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>
@@ -324,6 +272,12 @@ const App: React.FC = () => {
             <CheckCircle size={page === 'booked' ? 24 : 20} strokeWidth={page === 'booked' ? 3 : 2} />
           </div>
           <span className="text-[10px] font-bold uppercase tracking-tighter">History</span>
+        </button>
+        <button onClick={() => setPage('support')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'support' ? 'text-blue-400' : 'text-slate-500'}`}>
+          <div className={`${page === 'support' ? 'bg-blue-400/10 p-2 rounded-xl' : ''}`}>
+            <MessageSquare size={page === 'support' ? 24 : 20} strokeWidth={page === 'support' ? 3 : 2} />
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-tighter">Doubts</span>
         </button>
         <button onClick={() => setPage('stats')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'stats' ? 'text-yellow-500' : 'text-slate-500'}`}>
           <div className={`${page === 'stats' ? 'bg-yellow-500/10 p-2 rounded-xl shadow-[0_0_15px_rgba(234,179,8,0.2)]' : ''}`}>
