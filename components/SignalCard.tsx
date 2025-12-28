@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect } from 'react';
-// Add Trash2 to imports
 import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Moon, Trash2 } from 'lucide-react';
 import { TradeSignal, TradeStatus, OptionType, User } from '../types';
 import { analyzeTradeSignal } from '../services/geminiService';
@@ -10,12 +9,10 @@ interface SignalCardProps {
   user: User;
   highlights?: Set<string>;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
-  // Add onSignalDelete to props interface to fix type error in Dashboard.tsx
   onSignalDelete?: (signal: TradeSignal) => Promise<void>;
   isRecentlyClosed?: boolean;
 }
 
-// Update component signature to include onSignalDelete
 const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, onSignalDelete, isRecentlyClosed }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
@@ -121,9 +118,10 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
 
   return (
     <div className={`relative bg-slate-900 border rounded-xl overflow-hidden transition-all duration-500 
-      ${isActive ? (isBTST ? 'border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'border-slate-700 shadow-xl') : isBTST ? 'border-amber-500/20' : 'border-slate-800 opacity-90'} 
+      ${isActive ? (isBTST ? 'border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'border-slate-700 shadow-xl') : 
+        isBTST ? 'border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.05)]' : 'border-slate-800 opacity-90'} 
       ${isRecentlyClosed ? 'opacity-30 grayscale-[0.8]' : ''}
-      ${isBTST ? 'bg-gradient-to-br from-slate-900 to-amber-950/10' : ''}
+      ${isBTST ? 'bg-gradient-to-br from-slate-900 to-amber-950/15' : ''}
     `}>
       
       {/* Permanent BTST Ribbon */}
@@ -194,7 +192,6 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         </div>
         <div className="flex flex-col items-end space-y-1.5 pr-2">
             <div className="flex items-center space-x-2">
-              {/* Add Delete button for admins if onSignalDelete is provided */}
               {user.isAdmin && onSignalDelete && (
                 <button 
                   onClick={() => onSignalDelete(signal)}
@@ -261,10 +258,10 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             </div>
         </div>
 
-        <div className={`p-4 border-l border-slate-800 transition-all duration-700 ${isActive ? (isBTST ? 'bg-amber-950/20 shadow-inner' : 'bg-slate-900 shadow-inner') : 'bg-slate-900/50'}`}>
+        <div className={`p-4 border-l border-slate-800 transition-all duration-700 ${isActive ? (isBTST ? 'bg-amber-950/20 shadow-inner' : 'bg-slate-900 shadow-inner') : (isBTST ? 'bg-amber-950/10' : 'bg-slate-900/50 shadow-inner')}`}>
             <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center">
-                  <Activity size={10} className={`mr-1 ${isBTST ? 'text-amber-500' : 'text-blue-500'}`} /> CMP
+                  <Activity size={10} className={`mr-1 ${isBTST ? 'text-amber-500' : 'text-blue-500'}`} /> {isExited ? 'EXIT PRICE' : 'CMP'}
                 </p>
                 {isActive && (
                   <div className={`flex items-center space-x-1 ${isBTST ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30'} border px-1 py-0.5 rounded animate-pulse`}>
@@ -275,8 +272,8 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             </div>
             <div className="relative">
               <p className={`text-2xl font-mono font-black tracking-tighter ${
-                cmpProfit ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]' : 
-                cmpLoss ? 'text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.4)]' : 
+                cmpProfit && isActive ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]' : 
+                cmpLoss && isActive ? 'text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.4)]' : 
                 'text-white'
               }`}>
                 ₹{signal.cmp !== undefined ? signal.cmp.toFixed(2) : '0.00'}

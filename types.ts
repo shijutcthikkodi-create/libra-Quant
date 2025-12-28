@@ -57,6 +57,7 @@ export interface User {
   expiryDate: string;
   isAdmin: boolean;
   password?: string;
+  lastPassword?: string; // Track password at time of device lock
   deviceId?: string | null;
 }
 

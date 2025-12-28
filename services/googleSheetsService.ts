@@ -1,7 +1,7 @@
 
 import { TradeSignal, WatchlistItem, User, TradeStatus, LogEntry, ChatMessage } from '../types';
 
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx1foRQ4bUbGKW160-QI8eKK5TXusla8ztcL_pd7eFcOFlas_M-uXrbQ7XQWDMcZH0p/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwvKlkhm4P2wj0t5ePFGEVzCFOhL6k96qC4dc0OAId1NLCUl_sphIo6fupHOX3d6Coz/exec';
 
 export interface SheetData {
   signals: (TradeSignal & { sheetIndex: number })[];
@@ -38,12 +38,9 @@ const getVal = (obj: any, targetKey: string): any => {
   return undefined;
 };
 
-// Robust numeric parser that strips currency symbols, commas, and spaces
 const getNum = (obj: any, key: string): number | undefined => {
   let val = getVal(obj, key);
   if (val === undefined || val === null || String(val).trim() === '') return undefined;
-  
-  // Strip ₹, commas, and any non-numeric chars except . and -
   const cleanVal = String(val).replace(/[^\d.-]/g, '');
   const n = parseFloat(cleanVal);
   return isNaN(n) ? undefined : n;
@@ -52,56 +49,22 @@ const getNum = (obj: any, key: string): number | undefined => {
 const isTrue = (val: any): boolean => {
   if (val === true || val === 1 || val === '1') return true;
   const s = String(val || '').toUpperCase().trim();
-  return ['TRUE', 'YES', 'Y', 'BTST', 'B.T.S.T', 'OVERNIGHT'].includes(s);
+  return ['TRUE', 'YES', 'Y', 'BTST', 'B.T.S.T', 'ADMIN'].includes(s);
 };
 
 const normalizeStatus = (val: any): TradeStatus => {
   if (val === undefined || val === null || val === '') return TradeStatus.ACTIVE;
   const s = String(val).toUpperCase().trim();
   if (s === '3' || s.includes('ALL TARGET')) return TradeStatus.ALL_TARGET;
-  if (s.includes('ACTIVE') || s.includes('LIVE')) return TradeStatus.ACTIVE;
   if (s.includes('PARTIAL') || s.includes('BOOKED')) return TradeStatus.PARTIAL;
   if (s.includes('STOP') || s.includes('SL HIT') || s.includes('LOSS') || s.includes('STOPPED')) return TradeStatus.STOPPED;
   if (s.includes('EXIT') || s.includes('CLOSE') || s.includes('SQUARE')) return TradeStatus.EXITED;
   return TradeStatus.ACTIVE;
 };
 
-const generateTradeFingerprint = (s: any, index: number, tab: string): string => {
-  const inst = String(getVal(s, 'instrument') || '').trim().toUpperCase();
-  const sym = String(getVal(s, 'symbol') || '').trim().toUpperCase();
-  const entry = Number(getVal(s, 'entryPrice') || 0).toFixed(2);
-  const time = String(getVal(s, 'timestamp') || '').trim();
-  
-  const rawId = `${tab}-${index}-${inst}-${sym}-${entry}-${time}`;
-  return btoa(rawId).replace(/[^a-zA-Z0-9]/g, '').slice(-16);
-};
-
-const normalizeDateStr = (dateVal: any): string | undefined => {
-  if (!dateVal) return undefined;
-  let s = String(dateVal).trim();
-  if (!s) return undefined;
-
-  if (s.includes('-') || s.includes('/')) {
-    const separator = s.includes('-') ? '-' : '/';
-    const parts = s.split(separator);
-    if (parts.length === 3) {
-      if (parts[0].length <= 2 && parts[2].length === 4) {
-        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      }
-      if (parts[0].length === 4) {
-        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
-      }
-    }
-  }
-
-  if (s.includes('T')) return s.split('T')[0];
-  return s;
-};
-
 const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | null => {
   const instrument = String(getVal(s, 'instrument') || '').trim();
   const symbol = String(getVal(s, 'symbol') || '').trim();
-  const comment = String(getVal(s, 'comment') || '').trim();
   const entryPrice = getNum(s, 'entryPrice');
   
   if (!instrument || !symbol || instrument.length < 2 || entryPrice === undefined || entryPrice === 0) return null;
@@ -113,25 +76,8 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
   } else if (Array.isArray(rawTargets)) {
     parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
   }
-  
-  if (parsedTargets.length === 0) {
-    [1, 2, 3].forEach(i => {
-      const val = parseFloat(getVal(s, `target${i}`));
-      if (!isNaN(val) && val !== 0) parsedTargets.push(val);
-    });
-  }
 
-  const explicitId = getVal(s, 'id');
-  const id = explicitId ? String(explicitId).trim() : generateTradeFingerprint(s, index, tabName);
-
-  // Expanded BTST check to catch mentions in Instrument or Comments
-  const typeVal = String(getVal(s, 'type') || '').trim();
-  const btstFlagRaw = getVal(s, 'isBTST') || getVal(s, 'btst');
-  const isBtstCalculated = isTrue(btstFlagRaw) || 
-                           isTrue(typeVal) || 
-                           instrument.toUpperCase().includes('BTST') || 
-                           symbol.toUpperCase().includes('BTST') || 
-                           comment.toUpperCase().includes('BTST');
+  const id = String(getVal(s, 'id') || `sig-${index}-${Date.now()}`).trim();
 
   return {
     ...s,
@@ -145,26 +91,16 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
     trailingSL: getNum(s, 'trailingSL') ?? null,
     action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
     status: normalizeStatus(getVal(s, 'status')),
-    pnlPoints: getNum(s, 'pnlPoints') || 0,
-    pnlRupees: getNum(s, 'pnlRupees'),
-    comment: comment,
     timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
-    date: normalizeDateStr(getVal(s, 'date')) || getVal(s, 'timestamp')?.split('T')[0],
-    quantity: getNum(s, 'quantity') || 0,
-    cmp: getNum(s, 'cmp') || 0,
-    isBTST: isBtstCalculated
+    isBTST: isTrue(getVal(s, 'isBTST'))
   };
 };
 
 export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => {
   if (!SCRIPT_URL) return null;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000); 
-
   try {
     const v = Date.now();
-    const response = await fetch(`${SCRIPT_URL}?v=${v}`, { method: 'GET', mode: 'cors', signal: controller.signal });
-    clearTimeout(timeoutId);
+    const response = await fetch(`${SCRIPT_URL}?v=${v}`, { method: 'GET', mode: 'cors' });
     if (!response.ok) throw new Error(`HTTP_${response.status}`);
 
     const data = robustParseJson(await response.text());
@@ -181,30 +117,31 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
         symbol: String(getVal(w, 'symbol') || ''),
         price: Number(getVal(w, 'price') || 0),
         change: Number(getVal(w, 'change') || 0),
-        isPositive: getVal(w, 'isPositive') === true || String(getVal(w, 'isPositive')).toLowerCase() === 'true',
-        lastUpdated: String(getVal(w, 'lastUpdated') || '')
+        isPositive: isTrue(getVal(w, 'isPositive'))
       })).filter((w: any) => w.symbol),
       users: (data.users || []).map((u: any) => ({
-        ...u,
         id: String(getVal(u, 'id') || getVal(u, 'userId') || '').trim(),
-        name: String(getVal(u, 'name') || 'Client'),
-        phoneNumber: String(getVal(u, 'phoneNumber') || ''),
-        expiryDate: String(getVal(u, 'expiryDate') || ''),
-        isAdmin: String(getVal(u, 'isAdmin') || 'false').toLowerCase() === 'true',
+        name: String(getVal(u, 'name') || 'Client').trim(),
+        phoneNumber: String(getVal(u, 'phoneNumber') || '').trim(),
+        expiryDate: String(getVal(u, 'expiryDate') || '').trim(),
+        isAdmin: isTrue(getVal(u, 'isAdmin')),
+        password: String(getVal(u, 'password') || '').trim(),
+        lastPassword: String(getVal(u, 'lastPassword') || '').trim(),
+        deviceId: String(getVal(u, 'deviceId') || '').trim() || null
       })),
       logs: (data.logs || []).map((l: any) => ({
         timestamp: getVal(l, 'timestamp') || new Date().toISOString(),
-        user: getVal(l, 'user') || 'System',
-        action: getVal(l, 'action') || 'N/A',
-        details: getVal(l, 'details') || '',
-        type: (getVal(l, 'type') || 'SYSTEM').toUpperCase()
+        user: String(getVal(l, 'user') || 'System'),
+        action: String(getVal(l, 'action') || 'N/A'),
+        details: String(getVal(l, 'details') || ''),
+        type: (String(getVal(l, 'type') || 'SYSTEM')).toUpperCase() as any
       })),
       messages: (data.messages || []).map((m: any) => ({
         id: String(getVal(m, 'id') || Math.random()),
         userId: String(getVal(m, 'userId') || '').trim(),
         text: String(getVal(m, 'text') || '').trim(),
         timestamp: String(getVal(m, 'timestamp') || new Date().toISOString()),
-        isAdminReply: String(getVal(m, 'isAdminReply') || 'false').toLowerCase() === 'true'
+        isAdminReply: isTrue(getVal(m, 'isAdminReply'))
       }))
     };
   } catch (error) {
