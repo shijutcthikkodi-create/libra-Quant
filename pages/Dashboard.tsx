@@ -11,7 +11,6 @@ interface DashboardProps {
   user: User;
   granularHighlights: GranularHighlights;
   onSignalUpdate: (updated: TradeSignal) => Promise<boolean>;
-  onSignalDelete: (signal: TradeSignal) => Promise<void>;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -19,8 +18,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   signals, 
   user, 
   granularHighlights,
-  onSignalUpdate,
-  onSignalDelete
+  onSignalUpdate
 }) => {
   const GRACE_PERIOD_MS = 60 * 1000;
 
@@ -187,7 +185,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                                 user={user} 
                                 highlights={granularHighlights[signal.id]} 
                                 onSignalUpdate={onSignalUpdate}
-                                onSignalDelete={onSignalDelete}
                                 isRecentlyClosed={isRecentlyClosed}
                             />
                           </div>
