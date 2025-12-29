@@ -9,12 +9,12 @@ import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database, BellRing, ChevronRight, Zap } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
-const HIGHLIGHT_DURATION = 20000; // 20 Seconds
+const HIGHLIGHT_DURATION = 20000; 
 
 export type GranularHighlights = Record<string, Set<string>>;
 
@@ -49,7 +49,6 @@ const App: React.FC = () => {
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
-  const [lastChangedId, setLastChangedId] = useState<string | null>(null);
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -58,21 +57,17 @@ const App: React.FC = () => {
   const isFetchingRef = useRef(false);
 
   const handleRedirectToCard = useCallback((id: string) => {
-    // Switch to dashboard immediately
     setPage('dashboard');
-    // We use a small delay to ensure React has finished transitioning to the dashboard before scrolling
     setTimeout(() => {
       const el = document.getElementById(`signal-${id}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // Optional: briefly pulse the element's opacity or scale to draw attention
         el.classList.add('scale-[1.02]');
         setTimeout(() => el.classList.remove('scale-[1.02]'), 1000);
       }
-    }, 200);
+    }, 150);
   }, []);
 
-  // 20-Second Institutional Alert Pattern
   const playAlertSequence = useCallback((isCritical = false) => {
     if (!soundEnabled) return;
     if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
@@ -98,7 +93,6 @@ const App: React.FC = () => {
     };
 
     playBeep();
-    // Repeating beep pattern for 20 seconds
     const interval = setInterval(playBeep, 2000);
     beepIntervalRef.current = interval;
     setTimeout(() => {
@@ -163,16 +157,14 @@ const App: React.FC = () => {
           playAlertSequence(isCriticalAlert);
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           setGranularHighlights(currentHighlights);
-          setLastChangedId(changedId);
           
-          // CRITICAL: Jump to card automatically if we are not initializing
+          // AUTOMATIC REDIRECTION: Jump without user interaction
           if (!isInitial && changedId) {
             handleRedirectToCard(changedId);
           }
 
           highlightTimeoutRef.current = setTimeout(() => {
             setGranularHighlights({});
-            setLastChangedId(null);
           }, HIGHLIGHT_DURATION);
         }
 
@@ -222,8 +214,6 @@ const App: React.FC = () => {
     setUser(null);
   };
 
-  const lastSignal = signals.find(s => s.id === lastChangedId);
-
   if (!user) return <Login onLogin={(u) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ user: u, timestamp: Date.now() }));
     setUser(u);
@@ -232,32 +222,6 @@ const App: React.FC = () => {
 
   return (
     <Layout user={user} onLogout={logout} currentPage={page} onNavigate={setPage}>
-      
-      {/* PERSISTENT REDIRECTION TOAST (20 SECONDS) - Still useful for manual re-click if needed */}
-      {lastChangedId && lastSignal && (
-        <div 
-          onClick={() => handleRedirectToCard(lastChangedId)}
-          className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-900/95 backdrop-blur-2xl border-2 border-cyan-500/50 px-6 py-4 rounded-3xl shadow-[0_0_50px_rgba(6,182,212,0.3)] cursor-pointer flex items-center space-x-5 animate-in slide-in-from-top-6 duration-500 hover:scale-105 transition-all group"
-        >
-          <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 flex items-center justify-center text-cyan-400 animate-pulse border border-cyan-500/30">
-            <Zap size={24} fill="currentColor" />
-          </div>
-          <div>
-            <p className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.2em] leading-none mb-1.5 flex items-center">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 mr-2 animate-ping"></span>
-              Live Data Refresh
-            </p>
-            <p className="text-base font-bold text-white uppercase tracking-tighter">
-              {lastSignal.instrument} {lastSignal.symbol} <span className="text-slate-500 text-xs ml-2 font-mono">Book Profit?</span>
-            </p>
-          </div>
-          <div className="pl-6 border-l border-slate-800 flex items-center">
-             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-2 group-hover:text-cyan-400 transition-colors">Jump</span>
-             <ChevronRight className="text-slate-600 group-hover:text-white transition-all transform group-hover:translate-x-1" size={24} />
-          </div>
-        </div>
-      )}
-
       <div className="fixed top-4 right-4 z-[60] flex flex-col items-end space-y-3">
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">

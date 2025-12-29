@@ -53,24 +53,23 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         const rawId = String(sheetUser.deviceId || '').trim();
         const savedDeviceId = (rawId && rawId !== "" && rawId !== "null" && rawId !== "undefined") ? rawId : null;
         
-        // AUTO-RESET LOGIC: If password was changed by Admin, ignore old device lock
         if (isPasswordReset || !savedDeviceId) {
             const updatedUser = { 
                 ...sheetUser, 
                 deviceId: browserDeviceId, 
-                lastPassword: sheetUser.password // Mark this password as the "locked" one
+                lastPassword: sheetUser.password 
             };
             await updateSheetData('users', 'UPDATE_USER', updatedUser, sheetUser.id);
             await updateSheetData('logs', 'ADD', {
               timestamp: new Date().toISOString(),
               user: sheetUser.name,
               action: isPasswordReset ? 'RENEWAL_BIND' : 'DEVICE_BIND',
-              details: `Auto-reset & Locked to ${browserDeviceId.slice(0, 12)}`,
+              details: `Device locked for security.`,
               type: 'SECURITY'
             });
             currentDeviceId = browserDeviceId;
         } else if (savedDeviceId !== browserDeviceId) {
-            setError(`SECURITY LOCK: Account active on another terminal. Contact Admin to reset or use your NEW renewal key.`);
+            setError(`SECURITY LOCK: Account active on another terminal. Contact Admin to reset.`);
             setLoading(false);
             return;
         }
@@ -80,7 +79,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         timestamp: new Date().toISOString(),
         user: sheetUser.name,
         action: 'LOGIN_SUCCESS',
-        details: `Device: ${browserDeviceId.slice(0, 8)}`,
+        details: `Secure Login`,
         type: 'SECURITY'
     });
 
@@ -114,18 +113,17 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         });
 
         if (!sheetUser) {
-            setError('Subscriber not found. Provide ID to Admin: ' + browserDeviceId.slice(0, 8));
+            setError('Subscriber not found. Contact Admin.');
             setLoading(false);
             return;
         }
 
         if (password.trim() !== String(sheetUser.password).trim()) {
-            setError('Invalid Access Key. Please check and try again.');
+            setError('Invalid Access Key.');
             setLoading(false);
             return;
         }
 
-        // Logic check: Was the password recently changed?
         const isPasswordReset = String(sheetUser.lastPassword || '').trim() !== String(sheetUser.password).trim();
 
         if (sheetUser.expiryDate && !isPasswordReset) {
@@ -139,7 +137,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             if (!isNaN(expiry.getTime())) {
                 expiry.setHours(23, 59, 59, 999);
                 if (new Date() > expiry) {
-                    setError('ACCESS EXPIRED: Please renew for a NEW access key.');
+                    setError('ACCESS EXPIRED.');
                     setLoading(false);
                     return;
                 }
@@ -147,12 +145,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         }
 
         if (isPasswordReset) {
-            setSuccessMsg('Renewal Detected. Hardware lock cleared.');
+            setSuccessMsg('Renewal Detected. Secure binding updated.');
         }
 
         completeLogin(sheetUser, isPasswordReset);
     } catch (err) {
-        setError('Connection failed. Please check your internet.');
+        setError('Connection failed.');
         setLoading(false);
     }
   };
@@ -223,15 +221,9 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
             <div className="mt-8 pt-6 border-t border-slate-800/50 text-center">
                 <p className="text-[10px] text-slate-600 font-mono leading-relaxed uppercase tracking-tighter">
-                    Account locks to initial device ID.<br/>
-                    Renewals automatically clear the old lock.
+                    Account locks to initial device.<br/>
+                    Renewals clear old security locks.
                 </p>
-            </div>
-        </div>
-        <div className="bg-slate-950/50 p-4 text-center border-t border-slate-800">
-            <div className="flex items-center justify-center text-[10px] text-slate-500 font-mono">
-                <Smartphone size={10} className="mr-2 text-slate-700" />
-                <span className="truncate max-w-[200px]">HARDWARE ID: {browserDeviceId}</span>
             </div>
         </div>
       </div>
