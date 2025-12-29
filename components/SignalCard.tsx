@@ -167,7 +167,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         </div>
       )}
 
-      <div className={`flex justify-between items-start p-5 pb-3 ${highlights?.has('instrument') || highlights?.has('symbol') || highlights?.has('action') || highlights?.has('type') ? 'animate-point-blink' : ''}`}>
+      <div className={`flex justify-between items-start p-5 pb-3 ${highlights?.has('instrument') || highlights?.has('symbol') || highlights?.has('action') || highlights?.has('type') ? 'animate-box-glow' : ''}`}>
         <div className="flex items-center space-x-3">
           <div className={`p-2 rounded-lg ${isBuy ? 'bg-emerald-900/30 text-emerald-400' : 'bg-rose-900/30 text-rose-400'}`}>
             {isBuy ? <ArrowUpRight size={24} /> : <ArrowDownRight size={24} />}
@@ -203,7 +203,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                   <Trash2 size={12} />
                 </button>
               )}
-              <div className={`px-3 py-1 rounded text-[10px] font-bold border ${getStatusColor(signal.status)} flex items-center ${highlights?.has('status') ? 'animate-point-blink' : ''}`}>
+              <div className={`px-3 py-1 rounded text-[10px] font-bold border ${getStatusColor(signal.status)} flex items-center ${highlights?.has('status') ? 'animate-box-glow' : ''}`}>
                   {isAllTarget ? <Trophy size={10} className="mr-2" /> : <span className={`w-1.5 h-1.5 rounded-full mr-2 ${isActive ? 'bg-current' : 'bg-current opacity-50'}`}></span>}
                   {signal.status}
               </div>
@@ -216,7 +216,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
       </div>
 
       <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-slate-800">
-        <div className={`bg-slate-900 p-4 ${highlights?.has('entryPrice') || highlights?.has('quantity') ? 'animate-point-blink' : ''}`}>
+        <div className={`bg-slate-900 p-4 ${highlights?.has('entryPrice') || highlights?.has('quantity') ? 'animate-box-glow' : ''}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 flex items-center">
               Entry
             </p>
@@ -228,7 +228,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             ) : null}
         </div>
         
-        <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : (isBTST ? 'bg-amber-500/5' : 'bg-slate-900')} ${highlights?.has('stopLoss') || highlights?.has('trailingSL') ? 'animate-point-blink' : ''}`}>
+        <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : (isBTST ? 'bg-amber-500/5' : 'bg-slate-900')} ${highlights?.has('stopLoss') || highlights?.has('trailingSL') ? 'animate-box-glow' : ''}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Stop Loss</p>
             <p className={`text-xl font-mono font-bold mb-3 ${isSLHit ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
               ₹{signal.stopLoss.toFixed(2)}
@@ -260,7 +260,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             </div>
         </div>
 
-        <div className={`p-4 border-l border-slate-800 transition-all duration-700 ${isActive ? (isBTST ? 'bg-amber-950/20 shadow-inner' : 'bg-slate-900 shadow-inner') : (isBTST ? 'bg-amber-950/10' : 'bg-slate-900/50 shadow-inner')} ${highlights?.has('cmp') ? 'animate-point-blink' : ''}`}>
+        <div className={`p-4 border-l border-slate-800 transition-all duration-700 ${isActive ? (isBTST ? 'bg-amber-950/20 shadow-inner' : 'bg-slate-900 shadow-inner') : (isBTST ? 'bg-amber-950/10' : 'bg-slate-900/50 shadow-inner')} ${highlights?.has('cmp') ? 'animate-box-glow' : ''}`}>
             <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center">
                   <Activity size={10} className={`mr-1 ${isBTST ? 'text-amber-500' : 'text-blue-500'}`} /> {isExited ? 'EXIT PRICE' : 'CMP'}
@@ -285,7 +285,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
       </div>
 
       {(isExited || signal.pnlPoints !== undefined) && (
-        <div className={`px-5 py-3 flex items-center justify-between border-b border-slate-800 ${ (signal.pnlPoints || 0) >= 0 ? 'bg-emerald-500/5' : 'bg-rose-500/5' } ${highlights?.has('pnlPoints') || highlights?.has('pnlRupees') ? 'animate-point-blink' : ''}`}>
+        <div className={`px-5 py-3 flex items-center justify-between border-b border-slate-800 ${ (signal.pnlPoints || 0) >= 0 ? 'bg-emerald-500/5' : 'bg-rose-500/5' } ${highlights?.has('pnlPoints') || highlights?.has('pnlRupees') ? 'animate-box-glow' : ''}`}>
             <div className="flex items-center space-x-2">
                 <div className={`p-1.5 rounded-full ${(signal.pnlPoints || 0) >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
                     {(signal.pnlPoints || 0) >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
@@ -317,7 +317,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
             </div>
         </div>
         
-        <div className={`grid grid-cols-3 gap-2 ${highlights?.has('targets') || highlights?.has('targetsHit') ? 'animate-point-blink' : ''}`}>
+        <div className={`grid grid-cols-3 gap-2 ${highlights?.has('targets') || highlights?.has('targetsHit') ? 'animate-box-glow' : ''}`}>
             {signal.targets && signal.targets.length > 0 ? (
               signal.targets.map((t, idx) => {
                 const isHit = isAllTarget || (signal.targetsHit || 0) > idx;
@@ -333,7 +333,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         </div>
 
         {signal.comment && (
-            <div className={`mt-4 p-3 rounded-lg border transition-colors ${isSLHit || isTSLHit ? 'bg-rose-950/20 border-rose-500/30' : isAllTarget ? 'bg-emerald-950/20 border-emerald-500/30' : (isBTST ? 'bg-amber-950/20 border-amber-500/30' : 'bg-slate-950/50 border-slate-800/50')} ${highlights?.has('comment') ? 'animate-point-blink' : ''}`}>
+            <div className={`mt-4 p-3 rounded-lg border transition-colors ${isSLHit || isTSLHit ? 'bg-rose-950/20 border-rose-500/30' : isAllTarget ? 'bg-emerald-950/20 border-emerald-500/30' : (isBTST ? 'bg-amber-950/20 border-amber-500/30' : 'bg-slate-950/50 border-slate-800/50')} ${highlights?.has('comment') ? 'animate-box-glow' : ''}`}>
                 <p className={`text-xs leading-relaxed ${isSLHit || isTSLHit ? 'text-rose-400 font-bold' : isAllTarget ? 'text-emerald-400 font-bold italic' : (isBTST ? 'text-amber-400 font-bold' : 'text-slate-400')}`}>
                   " {signal.comment} "
                 </p>

@@ -9,12 +9,12 @@ import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database, BellRing, ChevronRight } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
-const HIGHLIGHT_DURATION = 20000; // Updated to 20 seconds as requested
+const HIGHLIGHT_DURATION = 20000; 
 
 export type GranularHighlights = Record<string, Set<string>>;
 
@@ -51,6 +51,7 @@ const App: React.FC = () => {
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
+  const [lastChangedId, setLastChangedId] = useState<string | null>(null);
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
   const prevHistoryRef = useRef<TradeSignal[]>([]);
@@ -94,6 +95,7 @@ const App: React.FC = () => {
       if (data) {
         let hasAnyChanges = false;
         let isCriticalAlert = false;
+        let changedId: string | null = null;
         const currentHighlights: GranularHighlights = {};
 
         const diffSignals = (current: TradeSignal[], previous: TradeSignal[]) => {
@@ -105,6 +107,7 @@ const App: React.FC = () => {
             if (!old) {
               if (!isInitial && previous.length > 0) {
                 SIGNAL_KEYS.forEach(k => diff.add(k));
+                changedId = sid;
               }
             } else {
               SIGNAL_KEYS.forEach(k => {
@@ -112,6 +115,7 @@ const App: React.FC = () => {
                 const oldVal = JSON.stringify(old[k]);
                 if (newVal !== oldVal) {
                   diff.add(k);
+                  changedId = sid;
                   if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) diff.add('blast'); 
                   if (k === 'status' && s.status === TradeStatus.STOPPED && old.status !== TradeStatus.STOPPED) {
                     isCriticalAlert = true;
@@ -130,30 +134,17 @@ const App: React.FC = () => {
         if (!isInitial) {
           diffSignals(data.signals, prevSignalsRef.current);
           diffSignals(data.history || [], prevHistoryRef.current);
-
-          data.watchlist.forEach(w => {
-            const sym = w.symbol;
-            const old = prevWatchRef.current.find(o => o.symbol === sym);
-            const diff = new Set<string>();
-            if (!old) {
-              if (prevWatchRef.current.length > 0) WATCH_KEYS.forEach(k => diff.add(k));
-            } else {
-              WATCH_KEYS.forEach(k => {
-                if (JSON.stringify((w as any)[k]) !== JSON.stringify((old as any)[k])) diff.add(k);
-              });
-            }
-            if (diff.size > 0) { 
-                currentHighlights[sym] = diff; 
-                hasAnyChanges = true; 
-            }
-          });
         }
 
         if (hasAnyChanges) {
           playLongBeep(isCriticalAlert);
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           setGranularHighlights(currentHighlights);
-          highlightTimeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
+          setLastChangedId(changedId);
+          highlightTimeoutRef.current = setTimeout(() => {
+            setGranularHighlights({});
+            setLastChangedId(null);
+          }, HIGHLIGHT_DURATION);
         }
 
         const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -187,6 +178,15 @@ const App: React.FC = () => {
     setWatchlist([]);
     await sync(true);
   }, [sync]);
+
+  const handleRedirectToCard = useCallback((id: string) => {
+    setPage('dashboard');
+    // We use a small delay to ensure React has rendered the Dashboard if we were on another page
+    setTimeout(() => {
+        const el = document.getElementById(`signal-${id}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+  }, []);
 
   const handleSignalUpdate = useCallback(async (updatedSignal: TradeSignal) => {
     setConnectionStatus('syncing');
@@ -226,6 +226,8 @@ const App: React.FC = () => {
     setUser(null);
   };
 
+  const lastSignal = signals.find(s => s.id === lastChangedId);
+
   if (!user) return <Login onLogin={(u) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ user: u, timestamp: Date.now() }));
     setUser(u);
@@ -234,6 +236,28 @@ const App: React.FC = () => {
 
   return (
     <Layout user={user} onLogout={logout} currentPage={page} onNavigate={setPage}>
+      
+      {/* GLOBAL REDIRECTION TOAST */}
+      {lastChangedId && lastSignal && (
+        <div 
+          onClick={() => handleRedirectToCard(lastChangedId)}
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-slate-900/90 backdrop-blur-xl border border-blue-500/50 px-5 py-3 rounded-2xl shadow-[0_0_30px_rgba(59,130,246,0.2)] cursor-pointer flex items-center space-x-4 animate-in fade-in slide-in-from-top-4 transition-all hover:border-blue-400 group"
+        >
+          <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 animate-pulse">
+            <BellRing size={20} />
+          </div>
+          <div>
+            <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest leading-none mb-1">Live Update Detected</p>
+            <p className="text-sm font-bold text-white uppercase tracking-tighter">
+              {lastSignal.instrument} {lastSignal.symbol} <span className="text-slate-500 text-[10px] ml-1">Refreshed Now</span>
+            </p>
+          </div>
+          <div className="pl-4 border-l border-slate-800">
+             <ChevronRight className="text-slate-600 group-hover:text-white transition-colors" size={20} />
+          </div>
+        </div>
+      )}
+
       <div className="fixed top-4 right-4 z-[60] flex flex-col items-end space-y-3">
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">
