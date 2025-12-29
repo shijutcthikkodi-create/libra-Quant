@@ -14,7 +14,7 @@ import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
-const HIGHLIGHT_DURATION = 60000; // Increased to 60 seconds as requested
+const HIGHLIGHT_DURATION = 20000; // Updated to 20 seconds as requested
 
 export type GranularHighlights = Record<string, Set<string>>;
 
@@ -74,7 +74,6 @@ const App: React.FC = () => {
       
       gain.gain.setValueAtTime(0, ctx.currentTime);
       gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.1);
-      // Increased durations for a "long beep"
       gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + (isCritical ? 2.5 : 1.5));
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (isCritical ? 2.6 : 1.6));
       
