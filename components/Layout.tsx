@@ -136,16 +136,6 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
         </div>
       )}
 
-      {user && (
-        <div className="watermark">
-          {Array.from({ length: 40 }).map((_, i) => (
-            <div key={i} className="watermark-text text-sm md:text-base">
-              {user.phoneNumber} <span className="opacity-40">{user.id}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Mobile Header */}
       <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-50 sticky top-0 shadow-xl">
         <div className="flex items-center space-x-2">

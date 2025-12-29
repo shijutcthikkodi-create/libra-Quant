@@ -57,6 +57,21 @@ const App: React.FC = () => {
   const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isFetchingRef = useRef(false);
 
+  const handleRedirectToCard = useCallback((id: string) => {
+    // Switch to dashboard immediately
+    setPage('dashboard');
+    // We use a small delay to ensure React has finished transitioning to the dashboard before scrolling
+    setTimeout(() => {
+      const el = document.getElementById(`signal-${id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Optional: briefly pulse the element's opacity or scale to draw attention
+        el.classList.add('scale-[1.02]');
+        setTimeout(() => el.classList.remove('scale-[1.02]'), 1000);
+      }
+    }, 200);
+  }, []);
+
   // 20-Second Institutional Alert Pattern
   const playAlertSequence = useCallback((isCritical = false) => {
     if (!soundEnabled) return;
@@ -149,6 +164,12 @@ const App: React.FC = () => {
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           setGranularHighlights(currentHighlights);
           setLastChangedId(changedId);
+          
+          // CRITICAL: Jump to card automatically if we are not initializing
+          if (!isInitial && changedId) {
+            handleRedirectToCard(changedId);
+          }
+
           highlightTimeoutRef.current = setTimeout(() => {
             setGranularHighlights({});
             setLastChangedId(null);
@@ -171,15 +192,7 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playAlertSequence]);
-
-  const handleRedirectToCard = useCallback((id: string) => {
-    setPage('dashboard');
-    setTimeout(() => {
-      const el = document.getElementById(`signal-${id}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 150);
-  }, []);
+  }, [playAlertSequence, handleRedirectToCard]);
 
   const handleHardSync = useCallback(async () => {
     prevSignalsRef.current = [];
@@ -220,7 +233,7 @@ const App: React.FC = () => {
   return (
     <Layout user={user} onLogout={logout} currentPage={page} onNavigate={setPage}>
       
-      {/* PERSISTENT REDIRECTION TOAST (20 SECONDS) */}
+      {/* PERSISTENT REDIRECTION TOAST (20 SECONDS) - Still useful for manual re-click if needed */}
       {lastChangedId && lastSignal && (
         <div 
           onClick={() => handleRedirectToCard(lastChangedId)}
