@@ -10,7 +10,6 @@ interface DashboardProps {
   signals: (TradeSignal & { sheetIndex?: number })[];
   user: User;
   granularHighlights: GranularHighlights;
-  activeMajorAlerts: Record<string, number>;
   onSignalUpdate: (updated: TradeSignal) => Promise<boolean>;
 }
 
@@ -19,7 +18,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   signals, 
   user, 
   granularHighlights,
-  activeMajorAlerts,
   onSignalUpdate
 }) => {
   const GRACE_PERIOD_MS = 60 * 1000;
@@ -119,7 +117,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                     signal={signal} 
                     user={user} 
                     highlights={granularHighlights[signal.id]} 
-                    isMajorAlerting={!!activeMajorAlerts[signal.id]}
                     onSignalUpdate={onSignalUpdate}
                 />
               </div>
@@ -148,7 +145,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                             signal={signal} 
                             user={user} 
                             highlights={granularHighlights[signal.id]} 
-                            isMajorAlerting={!!activeMajorAlerts[signal.id]}
                             onSignalUpdate={onSignalUpdate}
                             isRecentlyClosed={signal.status === TradeStatus.EXITED || signal.status === TradeStatus.STOPPED || signal.status === TradeStatus.ALL_TARGET}
                         />

@@ -11,8 +11,7 @@ import { TradeSignal } from "../types";
  */
 export const analyzeTradeSignal = async (signal: TradeSignal): Promise<string> => {
   // Use process.env.API_KEY directly as per guidelines
-  // Cast to string to ensure it matches the expected type if process.env.API_KEY is typed as unknown or string | undefined
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
     As a senior technical analyst, analyze this option trade signal:
@@ -37,10 +36,8 @@ export const analyzeTradeSignal = async (signal: TradeSignal): Promise<string> =
       contents: prompt,
     });
     // Directly accessing .text property as per guidelines
-    // Using nullish coalescing to ensure a string is always returned
-    return response.text ?? "Analysis failed to generate.";
+    return response.text || "Analysis failed to generate.";
   } catch (error) {
-    // Ensuring error is handled safely
     console.error("Gemini API Error", error);
     return "Unable to generate analysis at this time.";
   }
