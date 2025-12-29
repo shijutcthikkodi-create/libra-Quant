@@ -8,12 +8,13 @@ interface SignalCardProps {
   signal: TradeSignal;
   user: User;
   highlights?: Set<string>;
+  isMajorAlerting?: boolean;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
   onSignalDelete?: (signal: TradeSignal) => Promise<void>;
   isRecentlyClosed?: boolean;
 }
 
-const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSignalUpdate, onSignalDelete, isRecentlyClosed }) => {
+const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMajorAlerting, onSignalUpdate, onSignalDelete, isRecentlyClosed }) => {
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   
@@ -72,9 +73,15 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
         return;
     }
     setLoadingAnalysis(true);
-    const result = await analyzeTradeSignal(signal);
-    setAnalysis(result);
-    setLoadingAnalysis(false);
+    try {
+      const result: string = await analyzeTradeSignal(signal);
+      setAnalysis(result);
+    } catch (err) {
+      console.error("AI Analysis failed", err);
+      setAnalysis("Technical analysis could not be generated.");
+    } finally {
+      setLoadingAnalysis(false);
+    }
   };
 
   const handleSaveTrail = async () => {
@@ -115,18 +122,16 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
   };
 
   const stamp = getStampContent();
-  const hasHighlights = !!highlights && highlights.size > 0;
-
+  
   return (
     <div className={`relative bg-slate-900 border rounded-xl overflow-hidden transition-all duration-500 
       ${isActive ? (isBTST ? 'border-amber-500/40 shadow-[0_0_20px_rgba(245,158,11,0.1)]' : 'border-slate-700 shadow-xl') : 
         isBTST ? 'border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.05)]' : 'border-slate-800 opacity-90'} 
       ${isRecentlyClosed ? 'opacity-30 grayscale-[0.8]' : ''}
       ${isBTST ? 'bg-gradient-to-br from-slate-900 to-amber-950/15' : ''}
-      ${hasHighlights ? 'animate-card-pulse' : ''}
+      ${isMajorAlerting && isBTST ? 'animate-btst-alert' : (isMajorAlerting ? 'animate-card-pulse' : '')}
     `}>
       
-      {/* Permanent BTST Ribbon */}
       {isBTST && (
         <div className="absolute top-0 right-0 z-20 overflow-hidden w-24 h-24 pointer-events-none">
           <div className="bg-amber-500 text-slate-950 text-[10px] font-black py-1 w-[140%] text-center transform rotate-45 translate-x-[20%] translate-y-[40%] shadow-lg border-b border-amber-600">
@@ -351,15 +356,6 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, onSig
                 {loadingAnalysis ? 'Syncing AI...' : analysis ? 'Close Intel' : 'AI Analysis'}
             </button>
         </div>
-        
-        {analysis && (
-            <div className="mt-2 p-3 bg-slate-950 border border-blue-900/30 rounded text-[10px] text-slate-300 leading-relaxed font-mono animate-in slide-in-from-top-2">
-                <div className="text-blue-400 mb-1 font-bold uppercase tracking-widest text-[9px] border-b border-blue-900/30 pb-1 flex items-center">
-                    <Check size={10} className="mr-1" /> Quantitative Analysis Output
-                </div>
-                {analysis}
-            </div>
-        )}
       </div>
     </div>
   );

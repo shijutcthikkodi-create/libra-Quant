@@ -1,7 +1,7 @@
 
 import React, { useMemo, useRef } from 'react';
 import SignalCard from '../components/SignalCard';
-import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon } from 'lucide-react';
+import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon, ShieldAlert } from 'lucide-react';
 import { WatchlistItem, TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
@@ -10,6 +10,7 @@ interface DashboardProps {
   signals: (TradeSignal & { sheetIndex?: number })[];
   user: User;
   granularHighlights: GranularHighlights;
+  activeMajorAlerts: Record<string, number>;
   onSignalUpdate: (updated: TradeSignal) => Promise<boolean>;
 }
 
@@ -18,6 +19,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   signals, 
   user, 
   granularHighlights,
+  activeMajorAlerts,
   onSignalUpdate
 }) => {
   const GRACE_PERIOD_MS = 60 * 1000;
@@ -57,41 +59,24 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [signals]);
 
-  /**
-   * STABLE ACTIVITY SORTING: 
-   * Prioritizes the most recently touched trade.
-   * When a trade is closed, the 'lastTradedTimestamp' is updated, 
-   * causing it to automatically move to the top.
-   */
-  const sortedSignals = useMemo(() => {
-    return [...liveSignals].sort((a, b) => {
-      // Calculate latest interaction time for A
-      const activityA = Math.max(
-        new Date(a.timestamp).getTime(), 
-        new Date(a.lastTradedTimestamp || 0).getTime()
-      );
-      
-      // Calculate latest interaction time for B
-      const activityB = Math.max(
-        new Date(b.timestamp).getTime(), 
-        new Date(b.lastTradedTimestamp || 0).getTime()
-      );
-      
-      if (activityA !== activityB) {
-        return (isNaN(activityB) ? 0 : activityB) - (isNaN(activityA) ? 0 : activityA);
-      }
-      
-      // Tie-breakers for stability
-      const indexA = a.sheetIndex ?? 0;
-      const indexB = b.sheetIndex ?? 0;
-      if (indexA !== indexB) return indexB - indexA;
-      
-      return b.id.localeCompare(a.id);
-    });
+  const activeBTSTs = useMemo(() => {
+    return liveSignals.filter(s => s.isBTST && (s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL));
   }, [liveSignals]);
 
-  const latestSignal = sortedSignals[0];
-  const isBannerActive = latestSignal && (latestSignal.status === TradeStatus.ACTIVE || latestSignal.status === TradeStatus.PARTIAL);
+  const otherLiveSignals = useMemo(() => {
+    return liveSignals.filter(s => !s.isBTST || (s.status !== TradeStatus.ACTIVE && s.status !== TradeStatus.PARTIAL));
+  }, [liveSignals]);
+
+  const sortedSignals = useMemo(() => {
+    return [...otherLiveSignals].sort((a, b) => {
+      const activityA = Math.max(new Date(a.timestamp).getTime(), new Date(a.lastTradedTimestamp || 0).getTime());
+      const activityB = Math.max(new Date(b.timestamp).getTime(), new Date(b.lastTradedTimestamp || 0).getTime());
+      if (activityA !== activityB) return (isNaN(activityB) ? 0 : activityB) - (isNaN(activityA) ? 0 : activityA);
+      const indexA = a.sheetIndex ?? 0;
+      const indexB = b.sheetIndex ?? 0;
+      return indexB - indexA;
+    });
+  }, [otherLiveSignals]);
 
   return (
     <div className="space-y-6">
@@ -101,9 +86,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <Activity size={24} className="mr-2 text-emerald-500" />
             Live Trading Floor
           </h2>
-          <p className="text-slate-400 text-sm font-mono tracking-tighter">
-            <i className="font-bold">Tension free trading</i>
-          </p>
+          <p className="text-slate-400 text-sm font-mono tracking-tighter italic">Tension free trading</p>
         </div>
         
         <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
@@ -111,85 +94,66 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Clock size={12} className="mr-1.5 text-blue-500" />
               IST Today: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
             </div>
-            
-            <a 
-              href="https://oa.mynt.in/?ref=ZTN348" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-lg transition-all text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-900/20"
-            >
-                <TrendingUp size={16} className="mr-2" />
-                Open Demat
+            <a href="https://oa.mynt.in/?ref=ZTN348" target="_blank" rel="noopener noreferrer" className="flex items-center px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-lg transition-all text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-900/20">
+                <TrendingUp size={16} className="mr-2" /> Open Demat
             </a>
         </div>
       </div>
 
-      {isBannerActive && (
-        <div className={`relative group overflow-hidden rounded-xl border ${latestSignal.isBTST ? 'border-amber-500/50' : 'border-emerald-500/30'} ${latestSignal.isBTST ? 'bg-amber-500/5' : 'bg-emerald-500/5'} p-1`}>
-          <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-40 transition-opacity">
-            {latestSignal.isBTST ? <Moon size={60} className="text-amber-500" /> : <Zap size={60} className="text-emerald-500" />}
+      {/* SPECIAL BTST TERMINAL SECTION */}
+      {activeBTSTs.length > 0 && (
+        <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
+          <div className="flex items-center space-x-3 px-1">
+             <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400 animate-pulse border border-amber-500/30">
+                <Moon size={22} fill="currentColor" />
+             </div>
+             <div>
+               <h3 className="text-sm font-black text-amber-500 uppercase tracking-[0.2em] leading-none mb-1">Active BTST Terminal</h3>
+               <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Priority overnight monitoring enabled</p>
+             </div>
           </div>
-          <div className={`bg-slate-950/80 backdrop-blur-sm rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between border ${latestSignal.isBTST ? 'border-amber-500/20' : 'border-emerald-500/20'}`}>
-            <div className="flex items-center space-x-4">
-              <div className={`w-10 h-10 rounded-full ${latestSignal.isBTST ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'} flex items-center justify-center animate-pulse`}>
-                {latestSignal.isBTST ? <Moon size={20} fill="currentColor" /> : <Zap size={20} fill="currentColor" />}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {activeBTSTs.map(signal => (
+              <div key={signal.id} id={`signal-${signal.id}`}>
+                <SignalCard 
+                    signal={signal} 
+                    user={user} 
+                    highlights={granularHighlights[signal.id]} 
+                    isMajorAlerting={!!activeMajorAlerts[signal.id]}
+                    onSignalUpdate={onSignalUpdate}
+                />
               </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <span className={`text-[10px] font-black ${latestSignal.isBTST ? 'bg-amber-500' : 'bg-emerald-500'} text-slate-950 px-1.5 py-0.5 rounded uppercase tracking-tighter`}>
-                    {latestSignal.isBTST ? 'LATEST BTST' : 'LATEST INTRADAY'}
-                  </span>
-                  <span className="text-xs font-mono text-slate-500">
-                    {new Date(latestSignal.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
-                  </span>
-                </div>
-                <h3 className="text-lg font-bold text-white font-mono uppercase tracking-tight">
-                  {latestSignal.instrument} {latestSignal.symbol} {latestSignal.type} @ {Number(latestSignal.entryPrice).toFixed(2)}
-                </h3>
-              </div>
-            </div>
-            <div className="mt-3 sm:mt-0">
-              <button 
-                onClick={() => document.getElementById(`signal-${latestSignal.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-                className={`px-4 py-2 ${latestSignal.isBTST ? 'bg-amber-500 hover:bg-amber-400' : 'bg-emerald-500 hover:bg-emerald-400'} text-slate-950 font-bold text-xs rounded-lg transition-all shadow-lg ${latestSignal.isBTST ? 'shadow-amber-500/20' : 'shadow-emerald-500/20'} uppercase tracking-widest`}
-              >
-                View Details
-              </button>
-            </div>
+            ))}
           </div>
+          <div className="h-px bg-gradient-to-r from-transparent via-slate-800 to-transparent my-6"></div>
         </div>
       )}
 
       <div className="flex flex-col lg:flex-row gap-6">
           <div className="flex-1 order-2 lg:order-1">
-              {sortedSignals.length === 0 ? (
+              <div className="mb-4 flex items-center space-x-2 px-1">
+                 <Zap size={16} className="text-emerald-500" />
+                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Market Feed</h3>
+              </div>
+              {sortedSignals.length === 0 && activeBTSTs.length === 0 ? (
                   <div className="text-center py-20 bg-slate-900/50 border border-dashed border-slate-800 rounded-3xl">
                       <Zap size={40} className="mx-auto text-slate-800 mb-4" />
                       <p className="text-slate-500 font-bold uppercase tracking-widest text-sm italic">Scanning terminal Truth...</p>
-                      <p className="text-[10px] text-slate-700 mt-2 uppercase tracking-widest font-mono">Monitoring Market Database</p>
                   </div>
               ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {sortedSignals.map((signal) => {
-                        const hasHighlight = !!granularHighlights[signal.id];
-                        const isRecentlyClosed = signal.status === TradeStatus.EXITED || signal.status === TradeStatus.STOPPED || signal.status === TradeStatus.ALL_TARGET;
-                        
-                        return (
-                          <div 
-                            key={signal.id} 
-                            id={`signal-${signal.id}`} 
-                            className={`transition-all duration-500 ${hasHighlight ? 'animate-blink' : ''}`}
-                          >
-                            <SignalCard 
-                                signal={signal} 
-                                user={user} 
-                                highlights={granularHighlights[signal.id]} 
-                                onSignalUpdate={onSignalUpdate}
-                                isRecentlyClosed={isRecentlyClosed}
-                            />
-                          </div>
-                        );
-                    })}
+                    {sortedSignals.map((signal) => (
+                      <div key={signal.id} id={`signal-${signal.id}`}>
+                        <SignalCard 
+                            signal={signal} 
+                            user={user} 
+                            highlights={granularHighlights[signal.id]} 
+                            isMajorAlerting={!!activeMajorAlerts[signal.id]}
+                            onSignalUpdate={onSignalUpdate}
+                            isRecentlyClosed={signal.status === TradeStatus.EXITED || signal.status === TradeStatus.STOPPED || signal.status === TradeStatus.ALL_TARGET}
+                        />
+                      </div>
+                    ))}
                   </div>
               )}
           </div>
@@ -220,9 +184,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             </div>
                         </div>
                     )) : (
-                        <div className="p-4 text-center text-slate-500 text-sm">
-                            Scanning market...
-                        </div>
+                        <div className="p-4 text-center text-slate-500 text-sm italic">Scanning market...</div>
                     )}
                 </div>
              </div>

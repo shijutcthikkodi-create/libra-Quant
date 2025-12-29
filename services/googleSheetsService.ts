@@ -48,8 +48,8 @@ const getNum = (obj: any, key: string): number | undefined => {
 
 const isTrue = (val: any): boolean => {
   if (val === true || val === 1 || val === '1') return true;
-  const s = String(val || '').toUpperCase().trim();
-  return ['TRUE', 'YES', 'Y', 'BTST', 'B.T.S.T', 'ADMIN'].includes(s);
+  const s = String(val || '').toUpperCase().trim().replace(/\./g, '');
+  return ['TRUE', 'YES', 'Y', 'BTST', 'B.T.S.T', 'ADMIN', 'OK', '1'].includes(s);
 };
 
 const normalizeStatus = (val: any): TradeStatus => {

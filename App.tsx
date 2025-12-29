@@ -14,7 +14,7 @@ import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
-const HIGHLIGHT_DURATION = 20000; 
+const MAJOR_ALERT_DURATION = 15000; // STRICT 15s
 
 export type GranularHighlights = Record<string, Set<string>>;
 
@@ -22,6 +22,11 @@ const SIGNAL_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
   'stopLoss', 'targets', 'trailingSL', 'status', 'pnlPoints', 'pnlRupees', 'comment', 'targetsHit',
   'quantity', 'cmp', 'isBTST'
+];
+
+// Significant changes that trigger beeps, blinks, and auto-scroll
+const MAJOR_ALERT_KEYS: Array<keyof TradeSignal> = [
+  'status', 'targetsHit', 'stopLoss', 'entryPrice', 'isBTST', 'action', 'instrument'
 ];
 
 const App: React.FC = () => {
@@ -48,59 +53,98 @@ const App: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('syncing');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
+  
+  const [activeMajorAlerts, setActiveMajorAlerts] = useState<Record<string, number>>({});
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isFetchingRef = useRef(false);
 
   const handleRedirectToCard = useCallback((id: string) => {
+    // Switch to dashboard first if not already there
     setPage('dashboard');
+    
+    // Smooth scroll to the card with high priority
     setTimeout(() => {
       const el = document.getElementById(`signal-${id}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('scale-[1.02]');
-        setTimeout(() => el.classList.remove('scale-[1.02]'), 1000);
+        // Visual indicator for target card
+        el.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
+        setTimeout(() => el.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50'), 3000);
       }
-    }, 150);
+    }, 200);
   }, []);
 
-  const playAlertSequence = useCallback((isCritical = false) => {
+  const playAlertSequence = useCallback((isCritical = false, isBTST = false) => {
     if (!soundEnabled) return;
+    
+    // Restart fresh 15s session
     if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
 
     const playBeep = () => {
       try {
-        const ctx = audioCtxRef.current || new (window.AudioContext || (window as any).webkitAudioContext)();
-        audioCtxRef.current = ctx;
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        const ctx = audioCtxRef.current;
         if (ctx.state === 'suspended') ctx.resume();
+
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.type = isCritical ? 'square' : 'sine';
-        osc.frequency.setValueAtTime(isCritical ? 440 : 880, ctx.currentTime);
+        
+        // Frequencies for professional alerting
+        const frequency = isBTST ? 1200 : (isCritical ? 350 : 880);
+        osc.type = (isBTST || isCritical) ? 'square' : 'sine';
+        
+        osc.frequency.setValueAtTime(frequency, ctx.currentTime);
         gain.gain.setValueAtTime(0, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.05);
-        gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.2);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3);
+        gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.1); 
+        gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.7); // Sustained tone
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.2);
+        
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
-        osc.stop(ctx.currentTime + 0.3);
-      } catch (e) {}
+        osc.stop(ctx.currentTime + 1.2);
+
+        if (isBTST) {
+            // Second tone for BTST urgency
+            setTimeout(() => {
+                if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') return;
+                const osc2 = audioCtxRef.current.createOscillator();
+                const gain2 = audioCtxRef.current.createGain();
+                osc2.type = 'square';
+                osc2.frequency.setValueAtTime(frequency + 200, audioCtxRef.current.currentTime);
+                gain2.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
+                gain2.gain.linearRampToValueAtTime(0.15, audioCtxRef.current.currentTime + 0.1);
+                gain2.gain.linearRampToValueAtTime(0.15, audioCtxRef.current.currentTime + 0.6);
+                gain2.gain.exponentialRampToValueAtTime(0.0001, audioCtxRef.current.currentTime + 1.0);
+                osc2.connect(gain2);
+                gain2.connect(audioCtxRef.current.destination);
+                osc2.start();
+                osc2.stop(audioCtxRef.current.currentTime + 1.0);
+            }, 300);
+        }
+      } catch (e) {
+        console.error("Audio error", e);
+      }
     };
 
     playBeep();
-    const interval = setInterval(playBeep, 2000);
+    // Beep every 2.5s for normal, 1.5s for BTST
+    const interval = setInterval(playBeep, isBTST ? 1500 : 2500);
     beepIntervalRef.current = interval;
+    
+    // Hard stop beep precisely at 15s
     setTimeout(() => {
       if (beepIntervalRef.current === interval) {
         clearInterval(beepIntervalRef.current);
         beepIntervalRef.current = null;
       }
-    }, HIGHLIGHT_DURATION);
+    }, MAJOR_ALERT_DURATION);
   }, [soundEnabled]);
 
   const sync = useCallback(async (isInitial = false) => {
@@ -111,62 +155,82 @@ const App: React.FC = () => {
     try {
       const data = await fetchSheetData();
       if (data) {
-        let hasAnyChanges = false;
+        let hasGlobalMajorChange = false;
         let isCriticalAlert = false;
-        let changedId: string | null = null;
-        const currentHighlights: GranularHighlights = {};
+        let isBTSTUpdate = false;
+        let scrollTargetId: string | null = null;
+        
+        const now = Date.now();
+        const newMajorAlerts: Record<string, number> = { ...activeMajorAlerts };
+        const newHighlights: GranularHighlights = { ...granularHighlights };
 
-        const diffSignals = (current: TradeSignal[], previous: TradeSignal[]) => {
-          current.forEach(s => {
-            const sid = s.id;
-            const old = previous.find(o => o.id === sid);
-            const diff = new Set<string>();
-            
-            if (!old) {
-              if (!isInitial && previous.length > 0) {
-                SIGNAL_KEYS.forEach(k => diff.add(k));
-                changedId = sid;
-              }
-            } else {
-              SIGNAL_KEYS.forEach(k => {
-                const newVal = JSON.stringify(s[k]);
-                const oldVal = JSON.stringify(old[k]);
-                if (newVal !== oldVal) {
-                  diff.add(k);
-                  changedId = sid;
-                  if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) diff.add('blast'); 
-                  if (k === 'status' && s.status === TradeStatus.STOPPED && old.status !== TradeStatus.STOPPED) {
-                    isCriticalAlert = true;
-                    diff.add('blast-red');
-                  }
-                }
-              });
-            }
-            if (diff.size > 0) { 
-              currentHighlights[sid] = diff; 
-              hasAnyChanges = true; 
-            }
-          });
-        };
-
-        if (!isInitial) {
-          diffSignals(data.signals, prevSignalsRef.current);
-        }
-
-        if (hasAnyChanges) {
-          playAlertSequence(isCriticalAlert);
-          if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-          setGranularHighlights(currentHighlights);
+        data.signals.forEach(s => {
+          const sid = s.id;
+          const old = prevSignalsRef.current.find(o => o.id === sid);
+          const diff = new Set<string>();
           
-          // AUTOMATIC REDIRECTION: Jump without user interaction
-          if (!isInitial && changedId) {
-            handleRedirectToCard(changedId);
+          const isActiveTrade = s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL;
+
+          if (!old) {
+            // NEW TRADE DETECTED
+            if (!isInitial && prevSignalsRef.current.length > 0) {
+              SIGNAL_KEYS.forEach(k => diff.add(k));
+              scrollTargetId = sid;
+              hasGlobalMajorChange = true;
+              newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+              if (s.isBTST && isActiveTrade) isBTSTUpdate = true;
+            }
+          } else {
+            // EXISTING TRADE UPDATE
+            let signalHasMajorChange = false;
+            SIGNAL_KEYS.forEach(k => {
+              const newVal = JSON.stringify(s[k]);
+              const oldVal = JSON.stringify(old[k]);
+              
+              if (newVal !== oldVal) {
+                diff.add(k);
+                
+                // Trigger major alert for key parameters
+                if (MAJOR_ALERT_KEYS.includes(k) && isActiveTrade) {
+                  signalHasMajorChange = true;
+                  hasGlobalMajorChange = true;
+                  scrollTargetId = sid;
+                }
+
+                if (s.isBTST && isActiveTrade && MAJOR_ALERT_KEYS.includes(k)) isBTSTUpdate = true;
+                
+                // Visual FX
+                if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) diff.add('blast'); 
+                if (k === 'status' && s.status === TradeStatus.STOPPED && old.status !== TradeStatus.STOPPED) {
+                  isCriticalAlert = true;
+                  diff.add('blast-red');
+                  signalHasMajorChange = true;
+                  hasGlobalMajorChange = true;
+                  scrollTargetId = sid;
+                }
+              }
+            });
+
+            if (signalHasMajorChange) {
+              newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+            }
           }
 
-          highlightTimeoutRef.current = setTimeout(() => {
-            setGranularHighlights({});
-          }, HIGHLIGHT_DURATION);
+          if (diff.size > 0) {
+            newHighlights[sid] = diff;
+          }
+        });
+
+        // ACTIONS FOR MAJOR CHANGES
+        if (hasGlobalMajorChange) {
+          playAlertSequence(isCriticalAlert, isBTSTUpdate);
+          if (!isInitial && scrollTargetId) {
+            handleRedirectToCard(scrollTargetId);
+          }
         }
+
+        setActiveMajorAlerts(newMajorAlerts);
+        setGranularHighlights(newHighlights);
 
         const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(nowStr);
@@ -184,20 +248,45 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playAlertSequence, handleRedirectToCard]);
+  }, [playAlertSequence, handleRedirectToCard, activeMajorAlerts, granularHighlights]);
+
+  // Alert Cleanup Clock: Removes expired blink state every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      const nextAlerts = { ...activeMajorAlerts };
+      const nextHighlights = { ...granularHighlights };
+
+      Object.keys(nextAlerts).forEach(id => {
+        if (now > nextAlerts[id]) {
+          delete nextAlerts[id];
+          delete nextHighlights[id];
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        setActiveMajorAlerts(nextAlerts);
+        setGranularHighlights(nextHighlights);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeMajorAlerts, granularHighlights]);
 
   const handleHardSync = useCallback(async () => {
     prevSignalsRef.current = [];
     setSignals([]);
+    setActiveMajorAlerts({});
+    setGranularHighlights({});
     await sync(true);
   }, [sync]);
 
   useEffect(() => {
     sync(true);
-    const timer = setInterval(() => sync(false), POLL_INTERVAL);
+    const pollTimer = setInterval(() => sync(false), POLL_INTERVAL);
     return () => {
-      clearInterval(timer);
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      clearInterval(pollTimer);
       if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
     };
   }, [sync]);
@@ -206,7 +295,12 @@ const App: React.FC = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
     localStorage.setItem('libra_sound_enabled', String(next));
-    if (next) playAlertSequence();
+    if (next) {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      playAlertSequence(false, false);
+    }
   };
 
   const logout = () => {
@@ -222,17 +316,17 @@ const App: React.FC = () => {
 
   return (
     <Layout user={user} onLogout={logout} currentPage={page} onNavigate={setPage}>
-      <div className="fixed top-4 right-4 z-[60] flex flex-col items-end space-y-3">
+      <div className="fixed top-4 right-4 z-[100] flex flex-col items-end space-y-3">
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">
-              <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">Server Status</span>
+              <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">Server Connectivity</span>
               <div className="flex items-center">
                  <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${connectionStatus === 'syncing' ? 'bg-blue-400 animate-pulse' : connectionStatus === 'error' ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'}`}></div>
                  <span className={`${connectionStatus === 'error' ? 'text-rose-400' : 'text-white'} font-mono`}>{lastSyncTime}</span>
               </div>
           </div>
           <div className="flex space-x-1">
-            <button onClick={handleHardSync} title="Hard Sync" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
+            <button onClick={handleHardSync} title="Reload Data" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
                 <Database size={14} />
             </button>
             <button onClick={() => sync(false)} disabled={connectionStatus === 'syncing'} className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}>
@@ -245,8 +339,8 @@ const App: React.FC = () => {
         </button>
       </div>
 
-      {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={sync} />}
-      {page === 'booked' && <BookedTrades signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={sync} />}
+      {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} activeMajorAlerts={activeMajorAlerts} onSignalUpdate={sync} />}
+      {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={sync} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={setWatchlist} signals={signals} onUpdateSignals={setSignals} users={users} onUpdateUsers={setUsers} logs={logs} onNavigate={setPage} onHardSync={handleHardSync} />}
