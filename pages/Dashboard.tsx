@@ -1,7 +1,8 @@
 
 import React, { useMemo, useRef } from 'react';
 import SignalCard from '../components/SignalCard';
-import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon, ShieldAlert } from 'lucide-react';
+// Added Loader2 to the imports from lucide-react
+import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon, ShieldAlert, Loader2 } from 'lucide-react';
 import { WatchlistItem, TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
@@ -10,6 +11,8 @@ interface DashboardProps {
   signals: (TradeSignal & { sheetIndex?: number })[];
   user: User;
   granularHighlights: GranularHighlights;
+  activeMajorAlerts: Record<string, number>;
+  activeWatchlistAlerts: Record<string, number>;
   onSignalUpdate: (updated: TradeSignal) => Promise<boolean>;
 }
 
@@ -18,6 +21,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   signals, 
   user, 
   granularHighlights,
+  activeMajorAlerts,
+  activeWatchlistAlerts,
   onSignalUpdate
 }) => {
   const GRACE_PERIOD_MS = 60 * 1000;
@@ -84,7 +89,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <Activity size={24} className="mr-2 text-emerald-500" />
             Live Trading Floor
           </h2>
-          <p className="text-slate-400 text-sm font-mono tracking-tighter italic">Tension free trading</p>
+          <p className="text-slate-400 text-sm font-mono tracking-tighter italic">Institutional Terminal Active</p>
         </div>
         
         <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
@@ -92,13 +97,12 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Clock size={12} className="mr-1.5 text-blue-500" />
               IST Today: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
             </div>
-            <a href="https://oa.mynt.in/?ref=ZTN348" target="_blank" rel="noopener noreferrer" className="flex items-center px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-lg transition-all text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-900/20">
+            <a href="https://oa.mynt.in/?ref=ZTN348" target="_blank" rel="noopener noreferrer" className="flex items-center px-4 py-2 bg-gradient-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-lg transition-all text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-900/20">
                 <TrendingUp size={16} className="mr-2" /> Open Demat
             </a>
         </div>
       </div>
 
-      {/* SPECIAL BTST TERMINAL SECTION */}
       {activeBTSTs.length > 0 && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
           <div className="flex items-center space-x-3 px-1">
@@ -117,6 +121,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     signal={signal} 
                     user={user} 
                     highlights={granularHighlights[signal.id]} 
+                    isMajorAlerting={!!activeMajorAlerts[signal.id]}
                     onSignalUpdate={onSignalUpdate}
                 />
               </div>
@@ -145,6 +150,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             signal={signal} 
                             user={user} 
                             highlights={granularHighlights[signal.id]} 
+                            isMajorAlerting={!!activeMajorAlerts[signal.id]}
                             onSignalUpdate={onSignalUpdate}
                             isRecentlyClosed={signal.status === TradeStatus.EXITED || signal.status === TradeStatus.STOPPED || signal.status === TradeStatus.ALL_TARGET}
                         />
@@ -163,24 +169,32 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                 </div>
                 <div className="divide-y divide-slate-800">
-                    {watchlist.length > 0 ? watchlist.map((item, idx) => (
-                        <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-800/50 transition-colors">
-                            <div>
-                                <p className="font-bold text-sm text-slate-200">{item.symbol}</p>
-                                <div className="flex items-center mt-1 text-slate-500">
-                                    <Clock size={10} className="mr-1" />
-                                    <span className="text-[10px] font-mono">{item.lastUpdated || '--'}</span>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <p className="font-mono text-sm text-white font-medium">{Number(item.price || 0).toFixed(2)}</p>
-                                <p className={`text-xs font-mono mt-0.5 ${item.isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                    {item.isPositive ? '+' : ''}{Number(item.change || 0).toFixed(2)}%
-                                </p>
-                            </div>
+                    {watchlist.length > 0 ? watchlist.map((item, idx) => {
+                        const isAlerting = !!activeWatchlistAlerts[item.symbol];
+                        return (
+                          <div key={idx} className={`p-4 flex items-center justify-between transition-all duration-500 relative ${isAlerting ? 'animate-box-glow z-10 scale-[1.02] bg-blue-500/10' : 'hover:bg-slate-800/50'}`}>
+                              <div className="relative z-10">
+                                  <p className="font-bold text-sm text-slate-200">{item.symbol}</p>
+                                  <div className="flex items-center mt-1 text-slate-500">
+                                      <Clock size={10} className="mr-1" />
+                                      <span className="text-[10px] font-mono">{item.lastUpdated || '--'}</span>
+                                  </div>
+                              </div>
+                              <div className="text-right relative z-10">
+                                  <p className={`font-mono text-sm font-black ${isAlerting ? 'text-cyan-400 animate-pulse' : 'text-white'}`}>
+                                    {Number(item.price || 0).toFixed(2)}
+                                  </p>
+                                  <p className={`text-xs font-mono mt-0.5 ${item.isPositive ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}`}>
+                                      {item.isPositive ? '+' : ''}{Number(item.change || 0).toFixed(2)}%
+                                  </p>
+                              </div>
+                          </div>
+                        );
+                    }) : (
+                        <div className="p-8 text-center">
+                            <Loader2 size={24} className="animate-spin mx-auto text-slate-700 mb-2" />
+                            <p className="text-slate-500 text-xs italic">Syncing market feed...</p>
                         </div>
-                    )) : (
-                        <div className="p-4 text-center text-slate-500 text-sm italic">Scanning market...</div>
                     )}
                 </div>
              </div>

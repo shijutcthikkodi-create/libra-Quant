@@ -14,7 +14,7 @@ import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
-const HIGHLIGHT_DURATION = 15000; // STRICT 15 SECONDS
+const MAJOR_ALERT_DURATION = 15000; // STRICT 15s
 
 export type GranularHighlights = Record<string, Set<string>>;
 
@@ -22,6 +22,11 @@ const SIGNAL_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
   'stopLoss', 'targets', 'trailingSL', 'status', 'pnlPoints', 'pnlRupees', 'comment', 'targetsHit',
   'quantity', 'cmp', 'isBTST'
+];
+
+// Keys that trigger the 15s Blink + Beep
+const MAJOR_ALERT_KEYS: Array<keyof TradeSignal> = [
+  'status', 'targetsHit', 'stopLoss', 'entryPrice', 'isBTST', 'action', 'instrument'
 ];
 
 const App: React.FC = () => {
@@ -48,11 +53,15 @@ const App: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('syncing');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
+  
+  // Track which items are currently in a "Major Alert" state (ID/Symbol -> ExpiryTimestamp)
+  const [activeMajorAlerts, setActiveMajorAlerts] = useState<Record<string, number>>({});
+  const [activeWatchlistAlerts, setActiveWatchlistAlerts] = useState<Record<string, number>>({});
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
+  const prevWatchlistRef = useRef<WatchlistItem[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isFetchingRef = useRef(false);
 
@@ -62,14 +71,15 @@ const App: React.FC = () => {
       const el = document.getElementById(`signal-${id}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('scale-[1.02]');
-        setTimeout(() => el.classList.remove('scale-[1.02]'), 1000);
+        el.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
+        setTimeout(() => el.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50'), 3000);
       }
-    }, 150);
+    }, 250);
   }, []);
 
-  const playAlertSequence = useCallback((isCritical = false, isBTST = false) => {
+  const playAlertSequence = useCallback((isCritical = false, isBTST = false, isWatchlist = false) => {
     if (!soundEnabled) return;
+    
     if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
 
     const playBeep = () => {
@@ -83,55 +93,52 @@ const App: React.FC = () => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         
-        // Frequency styling maintained as per previous request
-        const frequency = isBTST ? 1200 : (isCritical ? 440 : 880);
+        // Watchlist gets a cleaner "sonar" beep
+        const frequency = isBTST ? 1200 : (isCritical ? 380 : (isWatchlist ? 1000 : 880));
         osc.type = (isBTST || isCritical) ? 'square' : 'sine';
         
         osc.frequency.setValueAtTime(frequency, ctx.currentTime);
         gain.gain.setValueAtTime(0, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.1); // Slightly louder/longer ramp
-        gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.4); // Longer sustain for "Long Beep"
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6); // Total duration increased to 0.6s
+        gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.1); 
+        gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.6); 
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.0);
         
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
-        osc.stop(ctx.currentTime + 0.6);
+        osc.stop(ctx.currentTime + 1.0);
 
-        if (isBTST) {
+        if (isBTST || (isWatchlist && Math.random() > 0.5)) {
             setTimeout(() => {
                 if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') return;
                 const osc2 = audioCtxRef.current.createOscillator();
                 const gain2 = audioCtxRef.current.createGain();
                 osc2.type = 'square';
-                osc2.frequency.setValueAtTime(frequency + 250, audioCtxRef.current.currentTime);
+                osc2.frequency.setValueAtTime(frequency + 200, audioCtxRef.current.currentTime);
                 gain2.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
-                gain2.gain.linearRampToValueAtTime(0.15, audioCtxRef.current.currentTime + 0.1);
-                gain2.gain.linearRampToValueAtTime(0.15, audioCtxRef.current.currentTime + 0.4);
-                gain2.gain.exponentialRampToValueAtTime(0.0001, audioCtxRef.current.currentTime + 0.6);
+                gain2.gain.linearRampToValueAtTime(0.12, audioCtxRef.current.currentTime + 0.1);
+                gain2.gain.linearRampToValueAtTime(0.12, audioCtxRef.current.currentTime + 0.5);
+                gain2.gain.exponentialRampToValueAtTime(0.0001, audioCtxRef.current.currentTime + 0.8);
                 osc2.connect(gain2);
                 gain2.connect(audioCtxRef.current.destination);
                 osc2.start();
-                osc2.stop(audioCtxRef.current.currentTime + 0.6);
+                osc2.stop(audioCtxRef.current.currentTime + 0.8);
             }, 350);
         }
-      } catch (e) {
-        console.error("Audio Error:", e);
-      }
+      } catch (e) {}
     };
 
     playBeep();
-    // Keep beeping every few seconds during the 15s window
-    const interval = setInterval(playBeep, isBTST ? 1200 : 2000);
+    const interval = setInterval(playBeep, isBTST ? 1500 : 2500);
     beepIntervalRef.current = interval;
     
-    // Stop all beeping after exactly 15 seconds
+    // HARD STOP ALL BEEPING AT 15s
     setTimeout(() => {
       if (beepIntervalRef.current === interval) {
         clearInterval(beepIntervalRef.current);
         beepIntervalRef.current = null;
       }
-    }, HIGHLIGHT_DURATION);
+    }, MAJOR_ALERT_DURATION);
   }, [soundEnabled]);
 
   const sync = useCallback(async (isInitial = false) => {
@@ -142,65 +149,83 @@ const App: React.FC = () => {
     try {
       const data = await fetchSheetData();
       if (data) {
-        let hasAnyChanges = false;
+        let hasGlobalMajorChange = false;
         let isCriticalAlert = false;
         let isBTSTUpdate = false;
-        let changedId: string | null = null;
-        const currentHighlights: GranularHighlights = {};
+        let isWatchlistChange = false;
+        let scrollTargetId: string | null = null;
+        
+        const now = Date.now();
+        const newMajorAlerts: Record<string, number> = { ...activeMajorAlerts };
+        const newWatchlistAlerts: Record<string, number> = { ...activeWatchlistAlerts };
+        const newHighlights: GranularHighlights = { ...granularHighlights };
 
+        // 1. PROCESS SIGNALS
         data.signals.forEach(s => {
           const sid = s.id;
           const old = prevSignalsRef.current.find(o => o.id === sid);
           const diff = new Set<string>();
-          
           const isActiveTrade = s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL;
 
           if (!old) {
             if (!isInitial && prevSignalsRef.current.length > 0) {
               SIGNAL_KEYS.forEach(k => diff.add(k));
-              changedId = sid;
+              scrollTargetId = sid;
+              hasGlobalMajorChange = true;
+              newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
               if (s.isBTST && isActiveTrade) isBTSTUpdate = true;
             }
           } else {
+            let signalHasMajorChange = false;
             SIGNAL_KEYS.forEach(k => {
-              const newVal = JSON.stringify(s[k]);
-              const oldVal = JSON.stringify(old[k]);
-              if (newVal !== oldVal) {
+              if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
                 diff.add(k);
-                changedId = sid;
-                if (s.isBTST && isActiveTrade) isBTSTUpdate = true;
+                if (MAJOR_ALERT_KEYS.includes(k) && isActiveTrade) {
+                  signalHasMajorChange = true;
+                  hasGlobalMajorChange = true;
+                  scrollTargetId = sid;
+                }
+                if (s.isBTST && isActiveTrade && MAJOR_ALERT_KEYS.includes(k)) isBTSTUpdate = true;
                 if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) diff.add('blast'); 
                 if (k === 'status' && s.status === TradeStatus.STOPPED && old.status !== TradeStatus.STOPPED) {
                   isCriticalAlert = true;
                   diff.add('blast-red');
+                  signalHasMajorChange = true;
+                  hasGlobalMajorChange = true;
+                  scrollTargetId = sid;
                 }
               }
             });
+            if (signalHasMajorChange) newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
           }
-          if (diff.size > 0) { 
-            currentHighlights[sid] = diff; 
-            hasAnyChanges = true; 
+          if (diff.size > 0) newHighlights[sid] = diff;
+        });
+
+        // 2. PROCESS WATCHLIST
+        data.watchlist.forEach(w => {
+          const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
+          if (old && !isInitial) {
+            if (w.price !== old.price || w.change !== old.change) {
+              isWatchlistChange = true;
+              newWatchlistAlerts[w.symbol] = now + MAJOR_ALERT_DURATION;
+            }
           }
         });
 
-        if (hasAnyChanges) {
-          playAlertSequence(isCriticalAlert, isBTSTUpdate);
-          if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
-          setGranularHighlights(currentHighlights);
-          
-          if (!isInitial && changedId) {
-            handleRedirectToCard(changedId);
-          }
-
-          // Clear highlight blinking after exactly 15 seconds
-          highlightTimeoutRef.current = setTimeout(() => {
-            setGranularHighlights({});
-          }, HIGHLIGHT_DURATION);
+        // 3. EXECUTE ALERTS
+        if (hasGlobalMajorChange || isWatchlistChange) {
+          playAlertSequence(isCriticalAlert, isBTSTUpdate, isWatchlistChange);
+          if (scrollTargetId && !isInitial) handleRedirectToCard(scrollTargetId);
         }
+
+        setActiveMajorAlerts(newMajorAlerts);
+        setActiveWatchlistAlerts(newWatchlistAlerts);
+        setGranularHighlights(newHighlights);
 
         const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(nowStr);
         prevSignalsRef.current = [...data.signals];
+        prevWatchlistRef.current = [...data.watchlist];
         setSignals([...data.signals]);
         setHistorySignals([...(data.history || [])]);
         setWatchlist([...data.watchlist]);
@@ -214,20 +239,51 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playAlertSequence, handleRedirectToCard]);
+  }, [playAlertSequence, handleRedirectToCard, activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
+
+  // Alert Cleanup Clock
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      const nextAlerts = { ...activeMajorAlerts };
+      const nextWatchAlerts = { ...activeWatchlistAlerts };
+      const nextHighlights = { ...granularHighlights };
+
+      [nextAlerts, nextWatchAlerts].forEach(obj => {
+        Object.keys(obj).forEach(key => {
+          if (now > obj[key]) {
+            delete obj[key];
+            delete nextHighlights[key];
+            changed = true;
+          }
+        });
+      });
+
+      if (changed) {
+        setActiveMajorAlerts(nextAlerts);
+        setActiveWatchlistAlerts(nextWatchAlerts);
+        setGranularHighlights(nextHighlights);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
 
   const handleHardSync = useCallback(async () => {
     prevSignalsRef.current = [];
+    prevWatchlistRef.current = [];
     setSignals([]);
+    setActiveMajorAlerts({});
+    setActiveWatchlistAlerts({});
+    setGranularHighlights({});
     await sync(true);
   }, [sync]);
 
   useEffect(() => {
     sync(true);
-    const timer = setInterval(() => sync(false), POLL_INTERVAL);
+    const pollTimer = setInterval(() => sync(false), POLL_INTERVAL);
     return () => {
-      clearInterval(timer);
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      clearInterval(pollTimer);
       if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
     };
   }, [sync]);
@@ -240,7 +296,7 @@ const App: React.FC = () => {
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
-      playAlertSequence(false, false);
+      playAlertSequence(false, false, false);
     }
   };
 
@@ -257,17 +313,17 @@ const App: React.FC = () => {
 
   return (
     <Layout user={user} onLogout={logout} currentPage={page} onNavigate={setPage}>
-      <div className="fixed top-4 right-4 z-[60] flex flex-col items-end space-y-3">
+      <div className="fixed top-4 right-4 z-[100] flex flex-col items-end space-y-3">
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">
-              <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">Server Status</span>
+              <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">Server Connectivity</span>
               <div className="flex items-center">
                  <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${connectionStatus === 'syncing' ? 'bg-blue-400 animate-pulse' : connectionStatus === 'error' ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'}`}></div>
                  <span className={`${connectionStatus === 'error' ? 'text-rose-400' : 'text-white'} font-mono`}>{lastSyncTime}</span>
               </div>
           </div>
           <div className="flex space-x-1">
-            <button onClick={handleHardSync} title="Hard Sync" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
+            <button onClick={handleHardSync} title="Reload Data" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
                 <Database size={14} />
             </button>
             <button onClick={() => sync(false)} disabled={connectionStatus === 'syncing'} className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}>
@@ -280,7 +336,7 @@ const App: React.FC = () => {
         </button>
       </div>
 
-      {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} onSignalUpdate={sync} />}
+      {page === 'dashboard' && <Dashboard watchlist={watchlist} signals={signals} user={user} granularHighlights={granularHighlights} activeMajorAlerts={activeMajorAlerts} activeWatchlistAlerts={activeWatchlistAlerts} onSignalUpdate={sync} />}
       {page === 'booked' && <BookedTrades signals={signals} historySignals={historySignals} user={user} granularHighlights={granularHighlights} onSignalUpdate={sync} />}
       {page === 'stats' && <Stats signals={signals} historySignals={historySignals} />}
       {page === 'rules' && <Rules />}
