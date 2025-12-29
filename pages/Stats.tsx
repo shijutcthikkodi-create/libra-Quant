@@ -2,141 +2,170 @@
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { TradeSignal, TradeStatus } from '../types';
-import { TrendingUp, Activity, Calendar, Zap, CheckCircle2, Clock, BarChart3, Filter, Target } from 'lucide-react';
+import { TrendingUp, Activity, Calendar, Zap, CheckCircle2, Clock, BarChart3, Filter, Target, Award, History as HistoryIcon, Layers, Briefcase } from 'lucide-react';
 
 interface StatsProps {
-  signals?: TradeSignal[];
+  signals?: (TradeSignal & { sheetIndex?: number })[];
   historySignals?: TradeSignal[];
 }
 
 const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
-  const getISTStrings = () => {
+  // Helper to get IST context for consistent filtering
+  const getISTContext = () => {
     const now = new Date();
-    // en-CA gives YYYY-MM-DD which matches the sheet/ISO format
-    const fmt = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-    const dayName = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long' }).format(now);
+    const fmt = (d: Date, options: Intl.DateTimeFormatOptions) => 
+      new Intl.DateTimeFormat('en-CA', { ...options, timeZone: 'Asia/Kolkata' }).format(d);
     
-    const today = fmt(now);
+    const today = fmt(now, { year: 'numeric', month: '2-digit', day: '2-digit' });
     const monthYear = today.split('-').slice(0, 2).join('-'); // YYYY-MM
-    return { today, monthYear, dayName };
+    const currentMonthLabel = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(now);
+    
+    return { today, monthYear, currentMonthLabel };
+  };
+
+  const isIndex = (instrument: string) => {
+    const indices = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'];
+    return indices.includes(instrument.toUpperCase());
+  };
+
+  /**
+   * ROBUST DATE NORMALIZER
+   * Handles ISO timestamps from Active signals and manual text dates from History tab.
+   * Supports: YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, D/M/YY
+   */
+  const normalizeDate = (trade: TradeSignal): string => {
+    const ts = trade.lastTradedTimestamp || trade.timestamp;
+    if (ts && String(ts).includes('T')) return String(ts).split('T')[0];
+    
+    const rawDate = String(trade.date || '').trim();
+    if (!rawDate) return '';
+
+    if (rawDate.includes('-')) {
+      const parts = rawDate.split('-');
+      if (parts[0].length === 4) return rawDate;
+      if (parts.length === 3 && parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+    
+    if (rawDate.includes('/')) {
+      const parts = rawDate.split('/');
+      if (parts.length === 3) {
+        const y = parts[2].length === 4 ? parts[2] : `20${parts[2]}`;
+        const m = parts[1].padStart(2, '0');
+        const d = parts[0].padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+    return '';
   };
 
   const performance = useMemo(() => {
-    const { today: istToday, monthYear: currentMonthYear, dayName } = getISTStrings();
-    const combinedData = [...signals, ...historySignals];
+    const { today: istToday, monthYear: currentMonthYear, currentMonthLabel } = getISTContext();
     
-    // Deduplicate trades by ID
-    const seenIds = new Set();
-    const uniqueTrades = combinedData.filter(item => {
-      if (!item.id) return false;
-      const duplicate = seenIds.has(item.id);
-      seenIds.add(item.id);
-      return !duplicate;
+    // 1. TODAY'S LEDGER: Strictly closed trades from the active signals tab for today
+    const activeClosedToday = (signals || []).filter(s => {
+      const isClosed = s.status === TradeStatus.EXITED || s.status === TradeStatus.STOPPED || s.status === TradeStatus.ALL_TARGET;
+      return isClosed && normalizeDate(s) === istToday;
     });
-
-    // Filter for finalized trades only
-    const closedTrades = uniqueTrades.filter(s => 
-      s.status === TradeStatus.EXITED || s.status === TradeStatus.STOPPED || s.status === TradeStatus.ALL_TARGET
-    );
 
     let todayPnL = 0;
-    let todayClosedCount = 0;
-    let latestSessionPnL = 0;
-    let latestSessionCount = 0;
-    let latestSessionDate = "";
+    activeClosedToday.forEach(s => {
+      const qty = Number(s.quantity && s.quantity > 0 ? s.quantity : 1);
+      todayPnL += Number(s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * qty);
+    });
+
+    // 2. UNIFIED POOL FOR MONTHLY: (History Tab Data) + (Closed Trade Book Data)
+    const unifiedMap = new Map<string, TradeSignal>();
     
-    const monthlySetupGroups: Record<string, number> = {};
-    const monthlyIntraGroups: Record<string, number> = {};
-    const monthlyBtstGroups: Record<string, number> = {};
-    const dailyMap: Record<string, number> = {};
-
-    // Prep 10-day chart slots for IST to ensure weekends don't push Friday off the chart too early
-    for (let i = 9; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-      dailyMap[dateKey] = 0;
-    }
-
-    // First pass: Group data and find latest trading day
-    const tradesByDate: Record<string, { pnl: number, count: number }> = {};
-
-    closedTrades.forEach(trade => {
-      const effectiveCloseTimestamp = trade.lastTradedTimestamp || trade.timestamp;
-      const effectiveCloseDate = effectiveCloseTimestamp ? effectiveCloseTimestamp.split('T')[0] : (trade.date || '');
-      
-      const pnl = trade.pnlRupees !== undefined 
-        ? trade.pnlRupees 
-        : (trade.pnlPoints || 0) * (trade.quantity || 1);
-      
-      const setupKey = `${trade.instrument}_${trade.symbol}_${trade.type}`.toUpperCase();
-      
-      // Track P&L per date
-      if (!tradesByDate[effectiveCloseDate]) tradesByDate[effectiveCloseDate] = { pnl: 0, count: 0 };
-      tradesByDate[effectiveCloseDate].pnl += pnl;
-      tradesByDate[effectiveCloseDate].count += 1;
-
-      // Current Month Stats
-      if (effectiveCloseDate.startsWith(currentMonthYear)) {
-        monthlySetupGroups[setupKey] = (monthlySetupGroups[setupKey] || 0) + pnl;
-        if (trade.isBTST) monthlyBtstGroups[setupKey] = (monthlyBtstGroups[setupKey] || 0) + pnl;
-        else monthlyIntraGroups[setupKey] = (monthlyIntraGroups[setupKey] || 0) + pnl;
-      }
-
-      // Populate Daily Distribution Chart
-      if (dailyMap[effectiveCloseDate] !== undefined) {
-        dailyMap[effectiveCloseDate] += pnl;
+    (historySignals || []).forEach(s => {
+      const id = s.id || `hist-${normalizeDate(s)}-${s.symbol}-${s.entryPrice}`;
+      unifiedMap.set(id, s);
+    });
+    
+    (signals || []).forEach(s => {
+      const isClosed = s.status === TradeStatus.EXITED || s.status === TradeStatus.STOPPED || s.status === TradeStatus.ALL_TARGET;
+      if (isClosed && s.id) {
+        unifiedMap.set(s.id, s);
       }
     });
 
-    // Calculate Today's P&L
-    if (tradesByDate[istToday]) {
-        todayPnL = tradesByDate[istToday].pnl;
-        todayClosedCount = tradesByDate[istToday].count;
-    }
+    const combinedHistory = Array.from(unifiedMap.values());
 
-    // Identify Latest Session (for weekends or empty today)
-    const sortedDates = Object.keys(tradesByDate).sort((a, b) => b.localeCompare(a));
-    const mostRecentDate = sortedDates[0];
-    
-    if (mostRecentDate) {
-        latestSessionPnL = tradesByDate[mostRecentDate].pnl;
-        latestSessionCount = tradesByDate[mostRecentDate].count;
-        latestSessionDate = mostRecentDate;
-    }
-
-    const calculateWinRate = (groups: Record<string, number>) => {
-      const outcomes = Object.values(groups);
-      const wins = outcomes.filter(val => val > 0).length;
-      return outcomes.length > 0 ? (wins / outcomes.length) * 100 : 0;
+    const monthlyStats = {
+      pnl: 0,
+      indexPnL: 0,
+      stockPnL: 0,
+      overall: [] as number[],
+      intraday: [] as number[],
+      btst: [] as number[]
     };
 
-    const isWeekend = dayName === 'Saturday' || dayName === 'Sunday';
-    const showLatestInsteadOfToday = isWeekend || todayClosedCount === 0;
+    const chartMap: Record<string, number> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+      chartMap[key] = 0;
+    }
+
+    combinedHistory.forEach(trade => {
+      const tradeDateStr = normalizeDate(trade);
+      if (!tradeDateStr) return;
+
+      const qty = Number(trade.quantity && trade.quantity > 0 ? trade.quantity : 1);
+      const pnl = Number(trade.pnlRupees !== undefined ? trade.pnlRupees : (trade.pnlPoints || 0) * qty);
+
+      // Monthly Rollup (including Today)
+      if (tradeDateStr.startsWith(currentMonthYear)) {
+        monthlyStats.pnl += pnl;
+        monthlyStats.overall.push(pnl);
+        
+        // Break down by Segment
+        if (isIndex(trade.instrument)) {
+          monthlyStats.indexPnL += pnl;
+        } else {
+          monthlyStats.stockPnL += pnl;
+        }
+
+        if (trade.isBTST) {
+          monthlyStats.btst.push(pnl);
+        } else {
+          monthlyStats.intraday.push(pnl);
+        }
+      }
+
+      // 7-Day performance curve
+      if (chartMap[tradeDateStr] !== undefined) {
+        chartMap[tradeDateStr] += pnl;
+      }
+    });
+
+    const calculateWinRate = (pnlList: number[]) => {
+      if (pnlList.length === 0) return 0;
+      const wins = pnlList.filter(v => v > 0).length;
+      return (wins / pnlList.length) * 100;
+    };
 
     return {
       todayPnL,
-      todayClosedCount,
-      displayPnL: showLatestInsteadOfToday ? latestSessionPnL : todayPnL,
-      displayCount: showLatestInsteadOfToday ? latestSessionCount : todayClosedCount,
-      displayDateLabel: showLatestInsteadOfToday ? (latestSessionDate ? `Session: ${latestSessionDate.split('-').slice(1).reverse().join('/')}` : 'No Session') : 'Session: Today',
-      displayTitle: showLatestInsteadOfToday ? 'Latest Session P&L' : "Today's Net P&L",
-      monthPnL: Object.values(tradesByDate).filter((_, i) => sortedDates[i]?.startsWith(currentMonthYear)).reduce((acc, curr) => acc + curr.pnl, 0),
-      overallWinRate: calculateWinRate(monthlySetupGroups),
-      intradayWinRate: calculateWinRate(monthlyIntraGroups),
-      btstWinRate: calculateWinRate(monthlyBtstGroups),
-      chartData: Object.entries(dailyMap).map(([date, value]) => ({
-        date: date.split('-').slice(1).reverse().join('/'),
-        pnl: value
-      })).slice(-7), // Keep only last 7 days for the actual visual
-      totalSetups: Object.keys(monthlySetupGroups).length,
-      totalIntra: Object.keys(monthlyIntraGroups).length,
-      totalBTST: Object.keys(monthlyBtstGroups).length,
-      currentMonthLabel: new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date())
+      todayCount: activeClosedToday.length,
+      monthlyPnL: monthlyStats.pnl,
+      indexPnL: monthlyStats.indexPnL,
+      stockPnL: monthlyStats.stockPnL,
+      overallWinRate: calculateWinRate(monthlyStats.overall),
+      intradayWinRate: calculateWinRate(monthlyStats.intraday),
+      btstWinRate: calculateWinRate(monthlyStats.btst),
+      totalMonthlyTrades: monthlyStats.overall.length,
+      currentMonthLabel,
+      chartData: Object.entries(chartMap).map(([date, pnl]) => ({
+        date: date.split('-').reverse().slice(0, 2).join('/'),
+        pnl
+      }))
     };
   }, [signals, historySignals]);
 
-  const formatCurrency = (val: number) => `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatCurrency = (val: number) => `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
@@ -146,91 +175,118 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
             <TrendingUp size={24} className="mr-2 text-yellow-500" />
             Performance Analytics
           </h2>
-          <div className="flex items-center space-x-2 text-slate-400 text-sm">
-            <Filter size={14} className="text-blue-500" />
-            <span>Reporting Cycle: <span className="text-blue-400 font-bold uppercase tracking-tighter">{performance.currentMonthLabel}</span></span>
-          </div>
+          <p className="text-slate-500 text-[10px] font-mono uppercase tracking-widest flex items-center">
+            <Layers className="mr-1.5 text-blue-500" size={12} /> Institutional Intelligence Deck
+          </p>
         </div>
-        <div className="flex items-center px-4 py-2 bg-slate-900 border border-slate-800 rounded-xl">
-           <div className="flex flex-col items-end">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Terminal Activity</span>
-              <span className="text-xs font-mono font-bold text-white">{performance.displayCount} Trades in {performance.displayDateLabel}</span>
-           </div>
+        <div className="flex items-center space-x-2 text-slate-400 text-[10px] bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
+           <Filter size={12} className="text-blue-500" />
+           <span className="uppercase font-black tracking-tighter">Cycle: {performance.currentMonthLabel}</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Row 1: Primary Metrics */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatItem 
-          label={performance.displayTitle} 
-          value={formatCurrency(performance.displayPnL)} 
-          isPositive={performance.displayPnL >= 0} 
+          label="Today's Ledger" 
+          value={formatCurrency(performance.todayPnL)} 
+          isPositive={performance.todayPnL >= 0} 
           icon={Activity}
           highlight={true}
-          subtext={performance.displayDateLabel}
+          subtext={`Booked Today (${performance.todayCount})`}
         />
         <StatItem 
-          label="Monthly Surplus" 
-          value={formatCurrency(performance.monthPnL)} 
-          isPositive={performance.monthPnL >= 0} 
-          icon={Calendar}
-          subtext="Net for this cycle"
+          label="Monthly Surplus (Total)" 
+          value={formatCurrency(performance.monthlyPnL)} 
+          isPositive={performance.monthlyPnL >= 0} 
+          icon={HistoryIcon}
+          subtext="History + Today's Ledger"
         />
         <StatItem 
-          label="Monthly Win Rate" 
-          value={`${performance.overallWinRate.toFixed(2)}%`} 
-          isPositive={performance.overallWinRate >= 50} 
-          subtext={`Across ${performance.totalSetups} Signals`}
-          icon={CheckCircle2}
+          label="Win Rate (Overall)" 
+          value={`${performance.overallWinRate.toFixed(1)}%`} 
+          isPositive={performance.overallWinRate >= 65} 
+          icon={Award}
+          subtext={`Sample: ${performance.totalMonthlyTrades} Trades`}
         />
         <StatItem 
           label="Intraday Accuracy" 
-          value={`${performance.intradayWinRate.toFixed(2)}%`} 
-          isPositive={performance.intradayWinRate >= 50} 
-          subtext={`${performance.totalIntra} Day trades`}
+          value={`${performance.intradayWinRate.toFixed(1)}%`} 
+          isPositive={performance.intradayWinRate >= 65} 
           icon={Zap}
+          subtext="Monthly Non-BTST"
+        />
+      </div>
+
+      {/* Row 2: Segment Breakdown & Reliability */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatItem 
+          label="Monthly Index P&L" 
+          value={formatCurrency(performance.indexPnL)} 
+          isPositive={performance.indexPnL >= 0} 
+          icon={Layers}
+          subtext="Nifty, BankNifty, etc."
+        />
+        <StatItem 
+          label="Monthly Stock P&L" 
+          value={formatCurrency(performance.stockPnL)} 
+          isPositive={performance.stockPnL >= 0} 
+          icon={Briefcase}
+          subtext="Equity Options / Cash"
         />
         <StatItem 
           label="BTST Reliability" 
-          value={`${performance.btstWinRate.toFixed(2)}%`} 
-          isPositive={performance.btstWinRate >= 50} 
-          subtext={`${performance.totalBTST} Overnight`}
+          value={`${performance.btstWinRate.toFixed(1)}%`} 
+          isPositive={performance.btstWinRate >= 65} 
           icon={Clock}
+          subtext="Overnight Win Rate"
         />
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 p-8 opacity-5">
-           <BarChart3 size={120} className="text-slate-400" />
+           <BarChart3 size={120} className="text-blue-500" />
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 relative z-10">
+        <div className="flex items-center justify-between mb-10 relative z-10">
             <div>
-              <h3 className="text-white font-bold flex items-center text-sm uppercase tracking-[0.2em]">
+              <h3 className="text-white font-bold flex items-center text-sm uppercase tracking-widest">
                 <BarChart3 size={16} className="mr-3 text-blue-500" />
-                7-Day Net P&L Distribution (IST)
+                Realized Performance curve
               </h3>
-              <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-widest">Rolling institutional performance log</p>
+              <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-tighter">7-Day Combined Data Feed</p>
             </div>
-            <div className="px-3 py-1 bg-slate-800/50 rounded-lg border border-slate-700 text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center">
+            <div className="hidden sm:flex items-center px-3 py-1 bg-slate-800/50 rounded-lg border border-slate-700 text-[9px] font-black text-slate-400 uppercase tracking-tighter">
                 <Target size={10} className="mr-1.5 text-blue-500" />
-                Verified Archive Data
+                Unified IST Standards
             </div>
         </div>
         
-        <div className="h-72 w-full min-h-[300px] relative z-10">
+        <div className="h-64 w-full relative z-10">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={performance.chartData} margin={{ top: 10, right: 10, left: 10, bottom: 20 }}>
+            <BarChart data={performance.chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" opacity={0.3} />
-              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 800}} dy={15} />
-              <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 800}} tickFormatter={(val) => `₹${Math.abs(val) > 1000 ? (val/1000).toFixed(1) + 'k' : val}`} />
+              <XAxis 
+                dataKey="date" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{fill: '#64748b', fontSize: 10, fontWeight: 800}} 
+                dy={10} 
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{fill: '#64748b', fontSize: 10, fontWeight: 800}} 
+                tickFormatter={(val) => `₹${Math.abs(val) >= 1000 ? (val/1000).toFixed(0) + 'k' : val}`} 
+              />
               <Tooltip 
                 cursor={{fill: 'rgba(30, 41, 59, 0.2)'}} 
-                contentStyle={{backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '16px', padding: '16px', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.5)'}}
-                itemStyle={{fontSize: '13px', fontWeight: '900', fontFamily: 'monospace'}}
-                labelStyle={{color: '#64748b', fontSize: '10px', marginBottom: '8px', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px'}}
+                contentStyle={{backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', padding: '12px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'}}
+                itemStyle={{fontSize: '12px', fontWeight: 'bold'}}
+                labelStyle={{color: '#64748b', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 900}}
               />
-              <Bar dataKey="pnl" radius={[8, 8, 0, 0]} barSize={45}>
+              <Bar dataKey="pnl" radius={[6, 6, 0, 0]} barSize={45}>
                 {performance.chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#10b981' : '#f43f5e'} fillOpacity={0.9} />
+                  <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#10b981' : '#f43f5e'} />
                 ))}
               </Bar>
             </BarChart>
@@ -242,22 +298,18 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
 };
 
 const StatItem = ({ label, value, isPositive, subtext, icon: Icon, highlight = false }: { label: string; value: string; isPositive: boolean; subtext?: string; icon: any; highlight?: boolean }) => (
-  <div className={`bg-slate-900 border ${highlight ? 'border-blue-500/30' : 'border-slate-800'} p-5 rounded-2xl shadow-xl hover:border-slate-600 transition-all relative overflow-hidden group`}>
-    {highlight && (
-      <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 blur-3xl -mr-12 -mt-12 rounded-full"></div>
-    )}
-    <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
-        <Icon size={48} className="text-white" />
-    </div>
+  <div className={`bg-slate-900 border ${highlight ? 'border-blue-500/30 shadow-[0_0_25px_rgba(59,130,246,0.1)]' : 'border-slate-800'} p-5 rounded-2xl shadow-xl hover:border-slate-700 transition-all group`}>
     <div className="flex items-center space-x-2 mb-3">
-        <Icon size={14} className={highlight ? 'text-blue-500' : 'text-slate-500'} />
-        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest truncate">{label}</p>
+        <div className={`p-1.5 rounded-lg ${highlight ? 'bg-blue-500/10 text-blue-500' : 'bg-slate-800 text-slate-500'}`}>
+           <Icon size={14} />
+        </div>
+        <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{label}</p>
     </div>
-    <p className={`text-2xl font-mono font-black tracking-tighter leading-none ${isPositive ? 'text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.3)]' : 'text-rose-400 drop-shadow-[0_0_12px_rgba(251,113,133,0.3)]'}`}>
+    <p className={`text-2xl font-mono font-black tracking-tighter leading-none ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
         {value}
     </p>
     {subtext && (
-        <p className={`text-[9px] font-bold ${highlight ? 'text-blue-400' : 'text-slate-600'} uppercase mt-2 tracking-widest opacity-80`}>{subtext}</p>
+        <p className="text-[9px] font-bold text-slate-600 uppercase mt-2 tracking-widest opacity-80">{subtext}</p>
     )}
   </div>
 );
