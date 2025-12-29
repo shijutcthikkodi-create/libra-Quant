@@ -1,13 +1,12 @@
 
 import React, { useMemo } from 'react';
 import SignalCard from '../components/SignalCard';
-import { History, Briefcase, Calendar, BarChart3, PieChart, Clock, Moon, Landmark } from 'lucide-react';
+import { History, Moon, Zap, Activity, BarChart3, TrendingUp, Layers } from 'lucide-react';
 import { TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
 interface BookedTradesProps {
   signals: (TradeSignal & { sheetIndex?: number })[];
-  historySignals?: TradeSignal[];
   user: User;
   granularHighlights: GranularHighlights;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
@@ -15,34 +14,38 @@ interface BookedTradesProps {
 
 const BookedTrades: React.FC<BookedTradesProps> = ({ 
   signals, 
-  historySignals = [],
   user, 
   granularHighlights,
   onSignalUpdate
 }) => {
-  // Enhanced index matchers for Indian Markets
-  const INDEX_MATCHERS = ['NIFTY', 'BANK', 'FINNIFTY', 'MIDCP', 'SENSEX', 'BANKEX', 'INDIAVIX'];
-
-  const getISTStrings = () => {
-    const now = new Date();
-    // Use en-CA for YYYY-MM-DD format easily
-    const fmt = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-    
-    const today = fmt(now);
-    const yesterdayDate = new Date(now);
-    yesterdayDate.setDate(now.getDate() - 1);
-    const yesterday = fmt(yesterdayDate);
-    
-    return { today, yesterday };
+  // Helper to get YYYY-MM-DD in IST
+  const getISTDateString = (dateInput: string | Date | undefined) => {
+    if (!dateInput) return '';
+    try {
+      const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+      if (isNaN(d.getTime())) return '';
+      return new Intl.DateTimeFormat('en-CA', { 
+        timeZone: 'Asia/Kolkata', 
+        year: 'numeric', 
+        month: '2-digit', 
+        day: '2-digit' 
+      }).format(d);
+    } catch (e) {
+      return '';
+    }
   };
 
-  const { groupedSignals, stats, totalCount } = useMemo(() => {
-    const { today, yesterday } = getISTStrings();
-    
-    // 1. Unified De-duplication and Filtering
+  const isIndex = (instrument: string) => {
+    const indices = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'];
+    return indices.includes(instrument.toUpperCase());
+  };
+
+  const { groupedSignals, stats, todayDateLabel } = useMemo(() => {
+    const today = getISTDateString(new Date());
     const tradeMap = new Map<string, TradeSignal>();
     
-    [...signals, ...historySignals].forEach(item => {
+    // Strictly collect only from the active SIGNALS tab data (signals)
+    (signals || []).forEach(item => {
       if (!item.id) return;
       
       const isClosed = 
@@ -51,180 +54,167 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
         item.status === TradeStatus.ALL_TARGET;
         
       if (isClosed) {
-        // Preference: If duplicate, keep history version as it's the "Final Truth"
         tradeMap.set(item.id, item);
       }
     });
 
-    const bookedTrades = Array.from(tradeMap.values());
+    const bookedToday = Array.from(tradeMap.values())
+      .filter(s => {
+        // Compare the IST date of the trade's last activity with IST today
+        const tradeISTDate = getISTDateString(s.lastTradedTimestamp || s.timestamp);
+        return tradeISTDate === today;
+      });
 
-    // 2. Precise Calculation Engine
-    const groups: Record<string, TradeSignal[]> = {
-      'TODAY': [],
-      'YESTERDAY': [],
-      'PAST RECORDS': []
+    const categories = {
+      indexIntra: [] as TradeSignal[],
+      indexBtst: [] as TradeSignal[],
+      stockIntra: [] as TradeSignal[],
+      stockBtst: [] as TradeSignal[]
     };
 
-    let indexIntraday = 0;
-    let stockIntraday = 0;
-    let indexBTST = 0;
-    let stockBTST = 0;
-    let totalNet = 0;
+    let netPnL = 0;
 
-    bookedTrades.forEach(s => {
-      // Calculate individual trade P&L with explicit Number() casting to avoid string issues
+    bookedToday.forEach(s => {
       const qty = Number(s.quantity && s.quantity > 0 ? s.quantity : 1);
-      const tradePnl = Number(s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * qty);
-      
-      totalNet += tradePnl;
+      const pnl = Number(s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * qty);
+      netPnL += pnl;
 
-      // Classify Instrument (Check both Instrument and Symbol for Index keywords)
-      const instRaw = String(s.instrument || '').toUpperCase();
-      const symRaw = String(s.symbol || '').toUpperCase();
-      const isIndex = INDEX_MATCHERS.some(idx => instRaw.includes(idx) || symRaw.includes(idx));
-
-      // Update Stats using strictly verified BTST flag
-      if (s.isBTST) {
-        if (isIndex) indexBTST += tradePnl;
-        else stockBTST += tradePnl;
+      const isIdx = isIndex(s.instrument);
+      if (isIdx) {
+        if (s.isBTST) categories.indexBtst.push(s);
+        else categories.indexIntra.push(s);
       } else {
-        if (isIndex) indexIntraday += tradePnl;
-        else stockIntraday += tradePnl;
-      }
-
-      // Grouping logic based on IST dates
-      const tradeDate = s.date || (s.timestamp ? s.timestamp.split('T')[0] : '');
-      if (tradeDate === today) {
-        groups['TODAY'].push(s);
-      } else if (tradeDate === yesterday) {
-        groups['YESTERDAY'].push(s);
-      } else {
-        groups['PAST RECORDS'].push(s);
+        if (s.isBTST) categories.stockBtst.push(s);
+        else categories.stockIntra.push(s);
       }
     });
 
-    // Sort within groups (Newest First) - USE STABLE SORT
-    Object.keys(groups).forEach(key => {
-      groups[key].sort((a, b) => {
-        const timeB = new Date(b.timestamp).getTime();
-        const timeA = new Date(a.timestamp).getTime();
-        if (timeB !== timeA) return timeB - timeA;
-        return b.id.localeCompare(a.id); // Tie-breaker
-      });
-    });
+    // Sort each category by time (latest first)
+    const sortByTime = (arr: TradeSignal[]) => arr.sort((a, b) => 
+      new Date(b.lastTradedTimestamp || b.timestamp).getTime() - new Date(a.lastTradedTimestamp || a.timestamp).getTime()
+    );
 
     return { 
-      groupedSignals: groups, 
-      stats: { indexIntraday, stockIntraday, indexBTST, stockBTST, totalNet },
-      totalCount: bookedTrades.length
+      groupedSignals: {
+        indexIntra: sortByTime(categories.indexIntra),
+        indexBtst: sortByTime(categories.indexBtst),
+        stockIntra: sortByTime(categories.stockIntra),
+        stockBtst: sortByTime(categories.stockBtst)
+      },
+      stats: { net: netPnL, count: bookedToday.length },
+      todayDateLabel: today.split('-').reverse().join('/')
     };
-  }, [signals, historySignals]);
+  }, [signals]);
 
-  const StatBox = ({ label, value, icon: Icon, iconColor, subtext, bgColor }: any) => (
-    <div className={`flex flex-col flex-1 p-4 bg-slate-900 border rounded-xl shadow-lg transition-all hover:border-slate-600 hover:shadow-xl ${bgColor || 'border-slate-800'}`}>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[9px] text-slate-500 uppercase font-black tracking-widest flex items-center">
-          <Icon size={12} className={`mr-2 ${iconColor}`} />
-          {label}
-        </span>
-        <span className="text-[8px] font-black text-slate-600 px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700/50 uppercase">{subtext}</span>
+  const SectionHeader = ({ title, icon: Icon, colorClass, data }: { title: string, icon: any, colorClass: string, data: TradeSignal[] }) => {
+    const pnl = data.reduce((acc, s) => {
+      const qty = Number(s.quantity && s.quantity > 0 ? s.quantity : 1);
+      return acc + Number(s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * qty);
+    }, 0);
+
+    return (
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-900 border-l-4 border-l-current rounded-r-xl mb-4 shadow-lg group" style={{ color: `var(--tw-text-opacity, 1)` }}>
+        <div className="flex items-center space-x-3">
+          <div className={`p-2 rounded-lg ${colorClass} bg-opacity-10`}>
+            <Icon size={18} className={colorClass} />
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-white uppercase tracking-widest">{title}</h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">{data.length} Realized Trade{data.length !== 1 ? 's' : ''}</p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className={`text-sm font-mono font-black ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {pnl >= 0 ? '+' : ''}₹{pnl.toLocaleString('en-IN')}
+          </p>
+          <p className="text-[8px] text-slate-600 font-bold uppercase tracking-widest">Segment P&L</p>
+        </div>
       </div>
-      <p className={`text-xl font-mono font-black tracking-tighter ${value >= 0 ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : 'text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.3)]'}`}>
-        {value >= 0 ? '+' : ''}₹{value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-      </p>
+    );
+  };
+
+  const RenderSection = ({ title, icon, colorClass, signals }: { title: string, icon: any, colorClass: string, signals: TradeSignal[] }) => (
+    <div className="mb-10 last:mb-0">
+      <SectionHeader title={title} icon={icon} colorClass={colorClass} data={signals} />
+      {signals.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {signals.map(signal => (
+            <SignalCard 
+              key={signal.id} 
+              signal={signal} 
+              user={user} 
+              highlights={granularHighlights[signal.id]} 
+              onSignalUpdate={onSignalUpdate}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="py-8 bg-slate-900/10 border border-dashed border-slate-800/40 rounded-2xl text-center">
+          <p className="text-[10px] text-slate-700 font-black uppercase tracking-[0.2em]">No activity in this segment</p>
+        </div>
+      )}
     </div>
   );
 
-  const activeGroupKeys = Object.keys(groupedSignals).filter(key => groupedSignals[key].length > 0);
-
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-8">
-        <div className="shrink-0">
-          <div className="flex items-center space-x-3 mb-2">
-             <div className="w-12 h-12 bg-emerald-600/10 rounded-2xl flex items-center justify-center text-emerald-500 border border-emerald-500/20 shadow-lg shadow-emerald-500/5">
-                <History size={28} />
-             </div>
-             <div>
-                <h2 className="text-3xl font-black text-white tracking-tighter uppercase leading-none">
-                  Trade Ledger
-                </h2>
-                <div className="flex items-center space-x-2 mt-1">
-                   <div className="px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-[9px] font-bold text-blue-400 tracking-tighter flex items-center uppercase">
-                      <Briefcase size={10} className="mr-1" />
-                      {totalCount} Verified Closures
-                   </div>
-                </div>
-             </div>
-          </div>
-          
-          <div className="mt-6 p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col items-start min-w-[240px] shadow-2xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-2 opacity-5">
-              <Landmark size={48} className="text-white" />
-            </div>
-            <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Total Realized P&L</span>
-            <p className={`text-3xl font-mono font-black tracking-tighter ${stats.totalNet >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {stats.totalNet >= 0 ? '+' : ''}₹{stats.totalNet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </p>
-          </div>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-slate-800 pb-8">
+        <div>
+           <h2 className="text-3xl font-black text-white tracking-tighter uppercase leading-none mb-1 flex items-center">
+             <History size={32} className="mr-3 text-emerald-500" />
+             Today's Ledger
+           </h2>
+           <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest font-mono italic">
+             Session: {todayDateLabel}
+           </p>
         </div>
 
-        <div className="w-full xl:max-w-4xl">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatBox label="Index Intra" value={stats.indexIntraday} icon={BarChart3} iconColor="text-blue-500" subtext="Scalps" />
-            <StatBox label="Stock Intra" value={stats.stockIntraday} icon={PieChart} iconColor="text-purple-500" subtext="Equity" />
-            <StatBox label="Index BTST" value={stats.indexBTST} icon={Moon} iconColor="text-amber-500" subtext="Overnight" bgColor="border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.05)]" />
-            <StatBox label="Stock BTST" value={stats.stockBTST} icon={Clock} iconColor="text-orange-500" subtext="Overnight" bgColor="border-orange-500/20 shadow-[0_0_15px_rgba(249,115,22,0.05)]" />
-          </div>
+        <div className="flex items-center space-x-4">
+           <div className="px-6 py-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl flex flex-col items-center justify-center min-w-[200px] border-l-4 border-l-blue-500">
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Today's Total Net</p>
+              <p className={`text-2xl font-mono font-black ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                ₹{stats.net.toLocaleString('en-IN')}
+              </p>
+           </div>
         </div>
       </div>
 
-      <div className="relative">
-        {activeGroupKeys.length === 0 ? (
-          <div className="py-32 bg-slate-900/20 border border-dashed border-slate-800/50 rounded-3xl text-center">
-            <div className="w-20 h-20 bg-slate-800/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-slate-700/50">
-              <Calendar size={40} className="text-slate-800" />
-            </div>
-            <p className="text-slate-500 font-black uppercase tracking-widest text-sm italic">Ledger Empty</p>
-            <p className="text-[10px] text-slate-700 mt-3 uppercase tracking-widest font-mono">Archive syncs automatically from terminal.</p>
-          </div>
-        ) : (
-          <div className="space-y-12">
-            {activeGroupKeys.map(dateKey => (
-              <div key={dateKey} className="space-y-6">
-                <div className="flex items-center space-x-3 sticky top-0 z-20 py-3 bg-slate-950/90 backdrop-blur-md border-b border-slate-900/50">
-                   <div className={`px-4 py-1.5 rounded text-[11px] font-black border tracking-widest ${
-                     dateKey === 'TODAY' ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 
-                     dateKey === 'YESTERDAY' ? 'bg-slate-800 text-slate-300 border-slate-700' :
-                     'bg-slate-900/50 text-slate-500 border-slate-800 italic'
-                   }`}>
-                      {dateKey}
-                   </div>
-                   <div className="flex-1 h-px bg-slate-800/30"></div>
-                   <span className="text-[10px] font-black text-slate-600 uppercase tracking-tighter">
-                     {groupedSignals[dateKey].length} TRADES
-                   </span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {groupedSignals[dateKey].map((signal) => (
-                    <div key={signal.id} className={signal.isBTST ? 'relative z-10' : ''}>
-                       {signal.isBTST && (
-                         <div className="absolute -inset-1 bg-amber-500/5 blur-md rounded-2xl pointer-events-none"></div>
-                       )}
-                       <SignalCard 
-                         signal={signal} 
-                         user={user} 
-                         highlights={granularHighlights[signal.id]} 
-                         onSignalUpdate={onSignalUpdate}
-                       />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="space-y-2">
+        <RenderSection 
+          title="Index Intraday" 
+          icon={Zap} 
+          colorClass="text-blue-400" 
+          signals={groupedSignals.indexIntra} 
+        />
+        
+        <RenderSection 
+          title="Index BTST" 
+          icon={Moon} 
+          colorClass="text-amber-500" 
+          signals={groupedSignals.indexBtst} 
+        />
+        
+        <RenderSection 
+          title="Stock Intraday" 
+          icon={Activity} 
+          colorClass="text-emerald-400" 
+          signals={groupedSignals.stockIntra} 
+        />
+        
+        <RenderSection 
+          title="Stock BTST" 
+          icon={Layers} 
+          colorClass="text-purple-400" 
+          signals={groupedSignals.stockBtst} 
+        />
       </div>
+
+      {stats.count === 0 && (
+        <div className="py-32 bg-slate-900/10 border border-dashed border-slate-800/50 rounded-3xl text-center">
+          <History size={48} className="mx-auto text-slate-800 mb-4 opacity-30" />
+          <p className="text-slate-500 font-black uppercase tracking-widest text-sm italic">No trades closed in today's session</p>
+        </div>
+      )}
     </div>
   );
 };
