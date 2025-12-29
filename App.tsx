@@ -14,7 +14,7 @@ import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
-const HIGHLIGHT_DURATION = 15000;
+const HIGHLIGHT_DURATION = 60000; // Increased to 60 seconds as requested
 
 export type GranularHighlights = Record<string, Set<string>>;
 
@@ -53,6 +53,7 @@ const App: React.FC = () => {
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
   
   const prevSignalsRef = useRef<TradeSignal[]>([]);
+  const prevHistoryRef = useRef<TradeSignal[]>([]);
   const prevWatchRef = useRef<WatchlistItem[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,18 +93,21 @@ const App: React.FC = () => {
       const data = await fetchSheetData();
       if (data) {
         let hasAnyChanges = false;
-        let hasSignalChanges = false;
         let isCriticalAlert = false;
         const currentHighlights: GranularHighlights = {};
 
-        if (!isInitial && prevSignalsRef.current.length > 0) {
-          data.signals.forEach(s => {
+        // Helper to diff signal arrays (Signals or History)
+        const diffSignals = (current: TradeSignal[], previous: TradeSignal[]) => {
+          current.forEach(s => {
             const sid = s.id;
-            const old = prevSignalsRef.current.find(o => o.id === sid);
+            const old = previous.find(o => o.id === sid);
             const diff = new Set<string>();
             
             if (!old) {
-              SIGNAL_KEYS.forEach(k => diff.add(k));
+              // Only highlight as "new" if it's not the initial load
+              if (!isInitial && previous.length > 0) {
+                SIGNAL_KEYS.forEach(k => diff.add(k));
+              }
             } else {
               SIGNAL_KEYS.forEach(k => {
                 const newVal = JSON.stringify(s[k]);
@@ -121,22 +125,33 @@ const App: React.FC = () => {
             if (diff.size > 0) { 
               currentHighlights[sid] = diff; 
               hasAnyChanges = true; 
-              hasSignalChanges = true; 
             }
           });
+        };
 
+        if (!isInitial) {
+          // Check Signals tab changes
+          diffSignals(data.signals, prevSignalsRef.current);
+          
+          // Check History tab changes
+          diffSignals(data.history || [], prevHistoryRef.current);
+
+          // Check Watchlist changes
           data.watchlist.forEach(w => {
             const sym = w.symbol;
             const old = prevWatchRef.current.find(o => o.symbol === sym);
             const diff = new Set<string>();
             if (!old) {
-              WATCH_KEYS.forEach(k => diff.add(k));
+              if (prevWatchRef.current.length > 0) WATCH_KEYS.forEach(k => diff.add(k));
             } else {
               WATCH_KEYS.forEach(k => {
                 if (JSON.stringify((w as any)[k]) !== JSON.stringify((old as any)[k])) diff.add(k);
               });
             }
-            if (diff.size > 0) { currentHighlights[sym] = diff; hasAnyChanges = true; }
+            if (diff.size > 0) { 
+                currentHighlights[sym] = diff; 
+                hasAnyChanges = true; 
+            }
           });
         }
 
@@ -144,17 +159,15 @@ const App: React.FC = () => {
           playLongBeep(isCriticalAlert);
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           setGranularHighlights(currentHighlights);
+          // Highlighting persists for 60 seconds
           highlightTimeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
-
-          if (hasSignalChanges) {
-            setPage('dashboard');
-          }
         }
 
         const nowStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(nowStr);
         
         prevSignalsRef.current = [...data.signals];
+        prevHistoryRef.current = [...(data.history || [])];
         prevWatchRef.current = [...data.watchlist];
         
         setSignals([...data.signals]);
@@ -174,6 +187,7 @@ const App: React.FC = () => {
 
   const handleHardSync = useCallback(async () => {
     prevSignalsRef.current = [];
+    prevHistoryRef.current = [];
     prevWatchRef.current = [];
     setSignals([]);
     setHistorySignals([]);
