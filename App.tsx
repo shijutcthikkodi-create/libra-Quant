@@ -73,14 +73,15 @@ const App: React.FC = () => {
       osc.frequency.setValueAtTime(isCritical ? 440 : 880, ctx.currentTime);
       
       gain.gain.setValueAtTime(0, ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.05);
-      gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + (isCritical ? 1.2 : 0.7));
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (isCritical ? 1.3 : 0.8));
+      gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.1);
+      // Increased durations for a "long beep"
+      gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + (isCritical ? 2.5 : 1.5));
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (isCritical ? 2.6 : 1.6));
       
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
-      osc.stop(ctx.currentTime + (isCritical ? 1.3 : 0.8));
+      osc.stop(ctx.currentTime + (isCritical ? 2.6 : 1.6));
     } catch (e) { }
   }, [soundEnabled]);
 
@@ -96,7 +97,6 @@ const App: React.FC = () => {
         let isCriticalAlert = false;
         const currentHighlights: GranularHighlights = {};
 
-        // Helper to diff signal arrays (Signals or History)
         const diffSignals = (current: TradeSignal[], previous: TradeSignal[]) => {
           current.forEach(s => {
             const sid = s.id;
@@ -104,7 +104,6 @@ const App: React.FC = () => {
             const diff = new Set<string>();
             
             if (!old) {
-              // Only highlight as "new" if it's not the initial load
               if (!isInitial && previous.length > 0) {
                 SIGNAL_KEYS.forEach(k => diff.add(k));
               }
@@ -130,13 +129,9 @@ const App: React.FC = () => {
         };
 
         if (!isInitial) {
-          // Check Signals tab changes
           diffSignals(data.signals, prevSignalsRef.current);
-          
-          // Check History tab changes
           diffSignals(data.history || [], prevHistoryRef.current);
 
-          // Check Watchlist changes
           data.watchlist.forEach(w => {
             const sym = w.symbol;
             const old = prevWatchRef.current.find(o => o.symbol === sym);
@@ -159,7 +154,6 @@ const App: React.FC = () => {
           playLongBeep(isCriticalAlert);
           if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
           setGranularHighlights(currentHighlights);
-          // Highlighting persists for 60 seconds
           highlightTimeoutRef.current = setTimeout(() => setGranularHighlights({}), HIGHLIGHT_DURATION);
         }
 
