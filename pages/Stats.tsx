@@ -31,6 +31,7 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
   /**
    * ROBUST DATE NORMALIZER
    * Handles ISO timestamps from Active signals and manual text dates from History tab.
+   * Supports: YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, D/M/YY
    */
   const normalizeDate = (trade: TradeSignal): string => {
     const ts = trade.lastTradedTimestamp || trade.timestamp;
@@ -115,12 +116,12 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
       const qty = Number(trade.quantity && trade.quantity > 0 ? trade.quantity : 1);
       const pnl = Number(trade.pnlRupees !== undefined ? trade.pnlRupees : (trade.pnlPoints || 0) * qty);
 
-      // Monthly Rollup (History + Today)
+      // Monthly Rollup (including Today)
       if (tradeDateStr.startsWith(currentMonthYear)) {
         monthlyStats.pnl += pnl;
         monthlyStats.overall.push(pnl);
         
-        // Segment breakdown
+        // Break down by Segment
         if (isIndex(trade.instrument)) {
           monthlyStats.indexPnL += pnl;
         } else {
@@ -134,7 +135,7 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
         }
       }
 
-      // 7-Day curve
+      // 7-Day performance curve
       if (chartMap[tradeDateStr] !== undefined) {
         chartMap[tradeDateStr] += pnl;
       }
@@ -187,19 +188,19 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
       {/* Row 1: Primary Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatItem 
-          label="Today's Booked P&L" 
+          label="Today's Ledger" 
           value={formatCurrency(performance.todayPnL)} 
           isPositive={performance.todayPnL >= 0} 
           icon={Activity}
           highlight={true}
-          subtext={`Realized Today (${performance.todayCount})`}
+          subtext={`Booked Today (${performance.todayCount})`}
         />
         <StatItem 
           label="Monthly Surplus (Total)" 
           value={formatCurrency(performance.monthlyPnL)} 
           isPositive={performance.monthlyPnL >= 0} 
           icon={HistoryIcon}
-          subtext="Incl. Hist Tab + Today's Book"
+          subtext="History + Today's Ledger"
         />
         <StatItem 
           label="Win Rate (Overall)" 
@@ -209,36 +210,36 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
           subtext={`Sample: ${performance.totalMonthlyTrades} Trades`}
         />
         <StatItem 
-          label="BTST Reliability" 
-          value={`${performance.btstWinRate.toFixed(1)}%`} 
-          isPositive={performance.btstWinRate >= 65} 
-          icon={Clock}
-          subtext="Overnight Win Accuracy"
+          label="Intraday Accuracy" 
+          value={`${performance.intradayWinRate.toFixed(1)}%`} 
+          isPositive={performance.intradayWinRate >= 65} 
+          icon={Zap}
+          subtext="Monthly Non-BTST"
         />
       </div>
 
-      {/* Row 2: Segment Breakdown */}
+      {/* Row 2: Segment Breakdown & Reliability */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <StatItem 
           label="Monthly Index P&L" 
           value={formatCurrency(performance.indexPnL)} 
           isPositive={performance.indexPnL >= 0} 
           icon={Layers}
-          subtext="Nifty / BankNifty Pool"
+          subtext="Nifty, BankNifty, etc."
         />
         <StatItem 
           label="Monthly Stock P&L" 
           value={formatCurrency(performance.stockPnL)} 
           isPositive={performance.stockPnL >= 0} 
           icon={Briefcase}
-          subtext="Equity Options & Cash"
+          subtext="Equity Options / Cash"
         />
         <StatItem 
-          label="Intraday Accuracy" 
-          value={`${performance.intradayWinRate.toFixed(1)}%`} 
-          isPositive={performance.intradayWinRate >= 65} 
-          icon={Zap}
-          subtext="Day-Trading Win Rate"
+          label="BTST Reliability" 
+          value={`${performance.btstWinRate.toFixed(1)}%`} 
+          isPositive={performance.btstWinRate >= 65} 
+          icon={Clock}
+          subtext="Overnight Win Rate"
         />
       </div>
 
@@ -250,13 +251,13 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
             <div>
               <h3 className="text-white font-bold flex items-center text-sm uppercase tracking-widest">
                 <BarChart3 size={16} className="mr-3 text-blue-500" />
-                Performance curve (Unified)
+                Realized Performance curve
               </h3>
-              <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-tighter">7-Day Combined History + Active Data Feed</p>
+              <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-tighter">7-Day Combined Data Feed</p>
             </div>
             <div className="hidden sm:flex items-center px-3 py-1 bg-slate-800/50 rounded-lg border border-slate-700 text-[9px] font-black text-slate-400 uppercase tracking-tighter">
                 <Target size={10} className="mr-1.5 text-blue-500" />
-                Unified Market Standards
+                Unified IST Standards
             </div>
         </div>
         
