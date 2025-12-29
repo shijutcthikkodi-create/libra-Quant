@@ -1,12 +1,13 @@
 
 import React, { useMemo } from 'react';
 import SignalCard from '../components/SignalCard';
-import { History, Moon, Zap, Activity, BarChart3, TrendingUp, Layers } from 'lucide-react';
+import { History, Moon, Zap, Activity, BarChart3, TrendingUp, Layers, Calendar } from 'lucide-react';
 import { TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
 interface BookedTradesProps {
   signals: (TradeSignal & { sheetIndex?: number })[];
+  historySignals?: TradeSignal[];
   user: User;
   granularHighlights: GranularHighlights;
   onSignalUpdate?: (updated: TradeSignal) => Promise<boolean>;
@@ -14,6 +15,7 @@ interface BookedTradesProps {
 
 const BookedTrades: React.FC<BookedTradesProps> = ({ 
   signals, 
+  historySignals = [],
   user, 
   granularHighlights,
   onSignalUpdate
@@ -35,13 +37,43 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     }
   };
 
+  // Helper to normalize dates for history signals (YYYY-MM-DD format)
+  const normalizeDate = (trade: TradeSignal): string => {
+    const ts = trade.lastTradedTimestamp || trade.timestamp;
+    if (ts && String(ts).includes('T')) return String(ts).split('T')[0];
+    
+    const rawDate = String(trade.date || '').trim();
+    if (!rawDate) return '';
+
+    if (rawDate.includes('-')) {
+      const parts = rawDate.split('-');
+      if (parts[0].length === 4) return rawDate;
+      if (parts.length === 3 && parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+    
+    if (rawDate.includes('/')) {
+      const parts = rawDate.split('/');
+      if (parts.length === 3) {
+        const y = parts[2].length === 4 ? parts[2] : `20${parts[2]}`;
+        const m = parts[1].padStart(2, '0');
+        const d = parts[0].padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+    return '';
+  };
+
   const isIndex = (instrument: string) => {
     const indices = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX'];
     return indices.includes(instrument.toUpperCase());
   };
 
-  const { groupedSignals, stats, todayDateLabel } = useMemo(() => {
+  const { groupedSignals, stats, monthlyStats, todayDateLabel } = useMemo(() => {
     const today = getISTDateString(new Date());
+    const currentMonthPrefix = today.split('-').slice(0, 2).join('-'); // YYYY-MM
+    
     const tradeMap = new Map<string, TradeSignal>();
     
     // Strictly collect only from the active SIGNALS tab data (signals)
@@ -60,7 +92,6 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
 
     const bookedToday = Array.from(tradeMap.values())
       .filter(s => {
-        // Compare the IST date of the trade's last activity with IST today
         const tradeISTDate = getISTDateString(s.lastTradedTimestamp || s.timestamp);
         return tradeISTDate === today;
       });
@@ -73,7 +104,6 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     };
 
     let netPnL = 0;
-
     bookedToday.forEach(s => {
       const qty = Number(s.quantity && s.quantity > 0 ? s.quantity : 1);
       const pnl = Number(s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * qty);
@@ -89,7 +119,33 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       }
     });
 
-    // Sort each category by time (latest first)
+    // Unified Pool for Monthly P&L (Current Month History + Active Signals Closed)
+    const unifiedMonthlyMap = new Map<string, TradeSignal>();
+    
+    (historySignals || []).forEach(s => {
+      const id = s.id || `hist-${normalizeDate(s)}-${s.symbol}-${s.entryPrice}`;
+      const tradeDate = normalizeDate(s);
+      if (tradeDate.startsWith(currentMonthPrefix)) {
+        unifiedMonthlyMap.set(id, s);
+      }
+    });
+    
+    Array.from(tradeMap.values()).forEach(s => {
+      const tradeDate = normalizeDate(s);
+      if (tradeDate.startsWith(currentMonthPrefix)) {
+        unifiedMonthlyMap.set(s.id, s);
+      }
+    });
+
+    let monthlyPnLTotal = 0;
+    let monthlyTradeCount = unifiedMonthlyMap.size;
+    
+    unifiedMonthlyMap.forEach(s => {
+      const qty = Number(s.quantity && s.quantity > 0 ? s.quantity : 1);
+      const pnl = Number(s.pnlRupees !== undefined ? s.pnlRupees : (s.pnlPoints || 0) * qty);
+      monthlyPnLTotal += pnl;
+    });
+
     const sortByTime = (arr: TradeSignal[]) => arr.sort((a, b) => 
       new Date(b.lastTradedTimestamp || b.timestamp).getTime() - new Date(a.lastTradedTimestamp || a.timestamp).getTime()
     );
@@ -102,9 +158,10 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
         stockBtst: sortByTime(categories.stockBtst)
       },
       stats: { net: netPnL, count: bookedToday.length },
+      monthlyStats: { net: monthlyPnLTotal, count: monthlyTradeCount },
       todayDateLabel: today.split('-').reverse().join('/')
     };
-  }, [signals]);
+  }, [signals, historySignals]);
 
   const SectionHeader = ({ title, icon: Icon, colorClass, data }: { title: string, icon: any, colorClass: string, data: TradeSignal[] }) => {
     const pnl = data.reduce((acc, s) => {
@@ -162,19 +219,28 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
         <div>
            <h2 className="text-3xl font-black text-white tracking-tighter uppercase leading-none mb-1 flex items-center">
              <History size={32} className="mr-3 text-emerald-500" />
-             Today's Ledger
+             Trade History Ledger
            </h2>
            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest font-mono italic">
              Session: {todayDateLabel}
            </p>
         </div>
 
-        <div className="flex items-center space-x-4">
-           <div className="px-6 py-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl flex flex-col items-center justify-center min-w-[200px] border-l-4 border-l-blue-500">
-              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Today's Total Net</p>
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+           <div className="px-6 py-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl flex flex-col items-center justify-center min-w-[180px] border-l-4 border-l-blue-500">
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Today's Net P&L</p>
               <p className={`text-2xl font-mono font-black ${stats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 ₹{stats.net.toLocaleString('en-IN')}
               </p>
+              <p className="text-[8px] text-slate-600 font-bold uppercase mt-1">{stats.count} Trades Closed</p>
+           </div>
+           
+           <div className="px-6 py-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl flex flex-col items-center justify-center min-w-[180px] border-l-4 border-l-emerald-500">
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Monthly Surplus</p>
+              <p className={`text-2xl font-mono font-black ${monthlyStats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                ₹{monthlyStats.net.toLocaleString('en-IN')}
+              </p>
+              <p className="text-[8px] text-slate-600 font-bold uppercase mt-1">{monthlyStats.count} Total (Hist + Live)</p>
            </div>
         </div>
       </div>
@@ -213,6 +279,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
         <div className="py-32 bg-slate-900/10 border border-dashed border-slate-800/50 rounded-3xl text-center">
           <History size={48} className="mx-auto text-slate-800 mb-4 opacity-30" />
           <p className="text-slate-500 font-black uppercase tracking-widest text-sm italic">No trades closed in today's session</p>
+          <p className="text-[9px] text-slate-700 mt-2 uppercase tracking-tighter">View Stats for monthly performance breakdown</p>
         </div>
       )}
     </div>
