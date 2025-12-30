@@ -61,41 +61,53 @@ const App: React.FC = () => {
   const isFetchingRef = useRef(false);
   const isAlertingRef = useRef(false);
 
-  // Resume Audio on first user interaction (Browser Policy)
+  // CRITICAL: Initialize and Resume AudioContext on first interaction
   useEffect(() => {
-    const resume = () => {
-      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+    const initAudio = () => {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      if (audioCtxRef.current.state === 'suspended') {
         audioCtxRef.current.resume();
       }
+      console.log("Audio Context Initialized:", audioCtxRef.current.state);
     };
-    window.addEventListener('mousedown', resume, { once: true });
-    window.addEventListener('touchstart', resume, { once: true });
+
+    window.addEventListener('click', initAudio, { once: true });
+    window.addEventListener('touchstart', initAudio, { once: true });
+    window.addEventListener('keydown', initAudio, { once: true });
+    
     return () => {
-      window.removeEventListener('mousedown', resume);
-      window.removeEventListener('touchstart', resume);
+      window.removeEventListener('click', initAudio);
+      window.removeEventListener('touchstart', initAudio);
+      window.removeEventListener('keydown', initAudio);
     };
   }, []);
 
   const handleRedirectToCard = useCallback((id: string) => {
-    // Force switch to dashboard to see the card
+    // 1. Force navigation to dashboard
     setPage('dashboard');
     
+    // 2. Wait for React render cycle and attempt scroll with retries
     let attempts = 0;
     const scrollWithRetry = () => {
       const el = document.getElementById(`signal-${id}`);
       if (el) {
+        // Institutional Smooth Scroll
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Apply visual focus indicators
         el.classList.add('animate-card-pulse', 'focus-indicator');
-        // Keep the focus ring for the duration of the alert (or 5s)
         setTimeout(() => {
           if (el) el.classList.remove('focus-indicator');
         }, 5000);
-      } else if (attempts < 30) {
+      } else if (attempts < 25) {
         attempts++;
         setTimeout(scrollWithRetry, 100);
       }
     };
-    // Initial delay to allow React to mount/switch pages
+    
+    // Small delay to allow page switch to register
     setTimeout(scrollWithRetry, 150);
   }, []);
 
@@ -117,33 +129,41 @@ const App: React.FC = () => {
   const playLongBeep = useCallback((isCritical = false, isBTST = false) => {
     if (!soundEnabled || isAlertingRef.current) return;
     
-    isAlertingRef.current = true;
-    
     try {
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
       const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') ctx.resume();
+      
+      // If still suspended, we can't play sound yet (waiting for first click)
+      if (ctx.state === 'suspended') {
+        ctx.resume();
+        // If it's still suspended after resume call, browser is blocking it.
+        if (ctx.state === 'suspended') return;
+      }
+
+      isAlertingRef.current = true;
 
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       
-      const baseFreq = isBTST ? 1200 : (isCritical ? 440 : 880);
+      // Select appropriate institutional frequency
+      const baseFreq = isBTST ? 1100 : (isCritical ? 420 : 840);
       osc.type = (isBTST || isCritical) ? 'square' : 'sine';
       osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
       
-      // Create a pulsating long beep over 15 seconds
-      for (let i = 0; i < (MAJOR_ALERT_DURATION / 1000); i++) {
+      // Create a 15-second pulsating alarm effect
+      const durationSeconds = MAJOR_ALERT_DURATION / 1000;
+      for (let i = 0; i < durationSeconds; i++) {
         const t = ctx.currentTime + i;
-        // Warble effect for institutional feel
-        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.02, t + 0.2);
+        // Frequency Warble (Urgency)
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.03, t + 0.2);
         osc.frequency.exponentialRampToValueAtTime(baseFreq, t + 0.4);
         
-        // Pumping gain
-        gain.gain.setValueAtTime(0.12, t);
-        gain.gain.linearRampToValueAtTime(0.04, t + 0.3);
-        gain.gain.linearRampToValueAtTime(0.12, t + 0.5);
+        // Pumping Volume
+        gain.gain.setValueAtTime(0.15, t);
+        gain.gain.linearRampToValueAtTime(0.03, t + 0.3);
+        gain.gain.linearRampToValueAtTime(0.15, t + 0.5);
       }
 
       osc.connect(gain);
@@ -153,13 +173,13 @@ const App: React.FC = () => {
       activeOscillatorRef.current = osc;
       activeGainRef.current = gain;
 
-      // STRICT 15s AUTO-STOP
+      // MANDATORY 15s KILL SWITCH
       setTimeout(() => {
         stopAlertAudio();
       }, MAJOR_ALERT_DURATION);
 
     } catch (e) {
-      console.error("Audio error", e);
+      console.error("Institutional Audio Error:", e);
       isAlertingRef.current = false;
     }
   }, [soundEnabled, stopAlertAudio]);
@@ -172,7 +192,7 @@ const App: React.FC = () => {
     try {
       const data = await fetchSheetData();
       if (data) {
-        let globalAnyChange = false;
+        let anyChangeDetected = false;
         let isCriticalAlert = false;
         let isBTSTUpdate = false;
         let scrollTargetId: string | null = null;
@@ -182,7 +202,7 @@ const App: React.FC = () => {
         const newWatchlistAlerts: Record<string, number> = { ...activeWatchlistAlerts };
         const newHighlights: GranularHighlights = { ...granularHighlights };
 
-        // 1. SIGNAL SYNC & ANY CHANGE DETECTION
+        // 1. PROCESS SIGNALS
         data.signals.forEach(s => {
           const sid = s.id;
           const old = prevSignalsRef.current.find(o => o.id === sid);
@@ -190,48 +210,48 @@ const App: React.FC = () => {
           const isActive = s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL;
 
           if (!old) {
-            // NEW SIGNAL
+            // New Signal Broadcast
             if (!isInitial && prevSignalsRef.current.length > 0) {
               SIGNAL_KEYS.forEach(k => diff.add(k));
+              anyChangeDetected = true;
               scrollTargetId = sid;
-              globalAnyChange = true;
               newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
               if (s.isBTST && isActive) isBTSTUpdate = true;
             }
           } else {
-            let signalHasChanged = false;
+            let cardHasUpdate = false;
             SIGNAL_KEYS.forEach(k => {
               if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
                 diff.add(k);
-                // Trigger auto-scroll and blinking for ANY change in signal properties
-                signalHasChanged = true;
-                globalAnyChange = true;
+                // Trigger scroll and audio for ANY card-level change
+                cardHasUpdate = true;
+                anyChangeDetected = true;
                 scrollTargetId = sid;
 
                 if (k === 'status' && s.status === TradeStatus.STOPPED) isCriticalAlert = true;
                 if (s.isBTST && isActive) isBTSTUpdate = true;
               }
             });
-            if (signalHasChanged) {
+            if (cardHasUpdate) {
               newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
             }
           }
           if (diff.size > 0) newHighlights[sid] = diff;
         });
 
-        // 2. WATCHLIST SYNC
+        // 2. PROCESS WATCHLIST
         data.watchlist.forEach(w => {
           const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
           if (old && !isInitial) {
             if (Number(w.price) !== Number(old.price) || Number(w.change) !== Number(old.change)) {
-              globalAnyChange = true;
+              anyChangeDetected = true;
               newWatchlistAlerts[w.symbol] = now + MAJOR_ALERT_DURATION;
             }
           }
         });
 
-        // 3. EXECUTE ALERTS & SCROLL
-        if (globalAnyChange) {
+        // 3. TRIGGER ALERTS & NAVIGATION
+        if (anyChangeDetected) {
           playLongBeep(isCriticalAlert, isBTSTUpdate);
           if (scrollTargetId && !isInitial) {
             handleRedirectToCard(scrollTargetId);
@@ -260,7 +280,7 @@ const App: React.FC = () => {
     }
   }, [playLongBeep, handleRedirectToCard, activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
 
-  // Visual Alert Cleanup Engine
+  // Alert State Expiry (Visual Clean-up)
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -301,12 +321,16 @@ const App: React.FC = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
     localStorage.setItem('libra_sound_enabled', String(next));
-    if (!next) stopAlertAudio();
-    else {
-      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+    if (!next) {
+      stopAlertAudio();
+    } else {
+      // Warm up audio context immediately
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      audioCtxRef.current.resume();
       playLongBeep(false, false);
-      // Quick test beep
-      setTimeout(stopAlertAudio, 1000);
+      setTimeout(stopAlertAudio, 1000); // 1s test tone
     }
   };
 
