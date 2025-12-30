@@ -77,7 +77,12 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
     parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
   }
 
-  const id = String(getVal(s, 'id') || `sig-${index}-${Date.now()}`).trim();
+  // STABLE ID GENERATION: 
+  // We MUST NOT use Date.now() if ID is missing, otherwise every poll treats it as new.
+  // We use row data to create a deterministic hash if ID column is empty.
+  const rawId = getVal(s, 'id');
+  const id = rawId ? String(rawId).trim() : 
+    `sig-${instrument}-${symbol}-${entryPrice}-${getVal(s, 'timestamp') || index}`.replace(/\s+/g, '-');
 
   return {
     ...s,
@@ -108,7 +113,7 @@ export const fetchSheetData = async (retries = 2): Promise<SheetData | null> => 
     return { 
       signals: (data.signals || [])
         .map((s: any, i: number) => ({ ...parseSignalRow(s, i, 'SIG'), sheetIndex: i }))
-        .filter((s: any) => s !== null) as (TradeSignal & { sheetIndex: number })[],
+        .filter((s: any) => s.id !== undefined) as (TradeSignal & { sheetIndex: number })[],
       history: (data.history || [])
         .map((s: any, i: number) => parseSignalRow(s, i, 'HIST'))
         .filter((s: any) => s !== null) as TradeSignal[],

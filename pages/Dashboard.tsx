@@ -26,6 +26,23 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const GRACE_PERIOD_MS = 60 * 1000;
 
+  const parseFlexibleDate = (dateStr: string | undefined): Date | null => {
+    if (!dateStr) return null;
+    let d = new Date(dateStr);
+    if (!isNaN(d.getTime())) return d;
+    
+    // Handle DD-MM-YYYY or DD/MM/YYYY
+    const parts = dateStr.split(/[-/]/);
+    if (parts.length === 3) {
+      if (parts[2].length === 4) { // DD-MM-YYYY
+        d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+      } else if (parts[0].length === 4) { // YYYY-MM-DD
+        d = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
+      }
+    }
+    return isNaN(d.getTime()) ? null : d;
+  };
+
   const isTodayOrYesterdayIST = (date: Date) => {
     if (!date || isNaN(date.getTime())) return false;
     const now = new Date();
@@ -47,29 +64,38 @@ const Dashboard: React.FC<DashboardProps> = ({
     const now = new Date();
 
     return (signals || []).filter(signal => {
-      const signalDate = new Date(signal.timestamp);
+      const signalDate = parseFlexibleDate(signal.timestamp);
+      if (!signalDate) return false;
+      
       const isRecent = isTodayOrYesterdayIST(signalDate);
-
       if (!isRecent) return false;
 
       const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
       if (isLive) return true;
 
       const closeTimeStr = signal.lastTradedTimestamp || signal.timestamp;
-      const closeDateObj = new Date(closeTimeStr);
-      return (now.getTime() - closeDateObj.getTime()) < GRACE_PERIOD_MS;
+      const closeDateObj = parseFlexibleDate(closeTimeStr);
+      return closeDateObj && (now.getTime() - closeDateObj.getTime()) < GRACE_PERIOD_MS;
     });
   }, [signals]);
 
   /**
-   * CRITICAL FIX: The "Last Given Trade" is defined as the absolute last row 
-   * in the Active Signals sheet. Sorting by sheetIndex (desc) ensures 
-   * we get the literal last transmission regardless of timestamp format issues.
+   * REFINED LATEST LOGIC: 
+   * The "Last Given Trade" must be absolute.
+   * We sort by:
+   * 1. Timestamp (descending) - True creation time
+   * 2. SheetIndex (descending) - Physical row order fallback
    */
   const lastGivenTrade = useMemo(() => {
     if (!signals || signals.length === 0) return null;
-    // We sort by sheetIndex descending to get the bottom-most row from the sheet
-    return [...signals].sort((a, b) => (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0))[0];
+    
+    return [...signals].sort((a, b) => {
+      const dateA = parseFlexibleDate(a.timestamp)?.getTime() || 0;
+      const dateB = parseFlexibleDate(b.timestamp)?.getTime() || 0;
+      
+      if (dateB !== dateA) return dateB - dateA;
+      return (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0);
+    })[0];
   }, [signals]);
 
   const activeBTSTs = useMemo(() => {
@@ -82,12 +108,13 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const sortedSignals = useMemo(() => {
     return [...otherLiveSignals].sort((a, b) => {
-      const activityA = Math.max(new Date(a.timestamp).getTime(), new Date(a.lastTradedTimestamp || 0).getTime());
-      const activityB = Math.max(new Date(b.timestamp).getTime(), new Date(b.lastTradedTimestamp || 0).getTime());
-      if (activityA !== activityB) return (isNaN(activityB) ? 0 : activityB) - (isNaN(activityA) ? 0 : activityA);
-      const indexA = a.sheetIndex ?? 0;
-      const indexB = b.sheetIndex ?? 0;
-      return indexB - indexA;
+      const dateA = parseFlexibleDate(a.timestamp)?.getTime() || 0;
+      const dateB = parseFlexibleDate(b.timestamp)?.getTime() || 0;
+      const activityA = Math.max(dateA, parseFlexibleDate(a.lastTradedTimestamp)?.getTime() || 0);
+      const activityB = Math.max(dateB, parseFlexibleDate(b.lastTradedTimestamp)?.getTime() || 0);
+      
+      if (activityA !== activityB) return activityB - activityA;
+      return (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0);
     });
   }, [otherLiveSignals]);
 
@@ -101,8 +128,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const timeSince = (timestamp: string) => {
-    const tradeDate = new Date(timestamp);
-    if (isNaN(tradeDate.getTime())) return "LIVE";
+    const tradeDate = parseFlexibleDate(timestamp);
+    if (!tradeDate) return "LIVE";
     const seconds = Math.floor((new Date().getTime() - tradeDate.getTime()) / 1000);
     if (seconds < 60) return "JUST NOW";
     if (seconds < 3600) return `${Math.floor(seconds / 60)}M AGO`;
@@ -132,7 +159,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* LAST GIVEN TRADE BANNER - REPOSITIONED AND RELIABLE */}
+      {/* LAST GIVEN TRADE BANNER - ALWAYS UPDATES TO THE TRUE LATEST */}
       {lastGivenTrade && (
         <div 
           onClick={() => scrollToSignal(lastGivenTrade.id)}
