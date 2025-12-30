@@ -58,12 +58,16 @@
         position: relative;
       }
 
-      @keyframes box-glow {
-        0%, 100% { background-color: transparent; }
-        50% { background-color: rgba(59, 130, 246, 0.15); }
+      /* BOX BLINK FOR SPECIFIC VALUES */
+      @keyframes box-blink {
+        0%, 100% { background-color: transparent; outline: 0px solid transparent; }
+        50% { background-color: rgba(59, 130, 246, 0.25); outline: 2px solid #3b82f6; }
       }
-      .animate-box-glow {
-        animation: box-glow 0.8s ease-in-out infinite;
+      .animate-box-blink {
+        animation: box-blink 0.6s ease-in-out infinite;
+        border-radius: 4px;
+        position: relative;
+        z-index: 10;
       }
 
       @keyframes fire-blast {

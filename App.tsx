@@ -18,15 +18,15 @@ const MAJOR_ALERT_DURATION = 15000; // STRICT 15s Limit
 
 export type GranularHighlights = Record<string, Set<string>>;
 
-// These keys trigger the 15s major pulse/beep
+// These keys trigger the 15s major pulse/beep (Broadcasting/Update events)
 const ALERT_TRIGGER_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
-  'stopLoss', 'targets', 'status', 'targetsHit', 'isBTST'
+  'stopLoss', 'targets', 'status', 'targetsHit', 'isBTST', 'trailingSL'
 ];
 
-// All keys that can cause a subtle glow
+// All keys that can cause a subtle glow or blink
 const ALL_SIGNAL_KEYS: Array<keyof TradeSignal> = [
-  ...ALERT_TRIGGER_KEYS, 'trailingSL', 'pnlPoints', 'pnlRupees', 'comment', 'quantity', 'cmp'
+  ...ALERT_TRIGGER_KEYS, 'pnlPoints', 'pnlRupees', 'comment', 'quantity', 'cmp'
 ];
 
 const App: React.FC = () => {
@@ -123,9 +123,9 @@ const App: React.FC = () => {
       const durationSeconds = MAJOR_ALERT_DURATION / 1000;
       for (let i = 0; i < durationSeconds; i++) {
         const t = ctx.currentTime + i;
-        gain.gain.setValueAtTime(0.1, t);
-        gain.gain.linearRampToValueAtTime(0.01, t + 0.3);
-        gain.gain.linearRampToValueAtTime(0.1, t + 0.6);
+        gain.gain.setValueAtTime(0.12, t);
+        gain.gain.linearRampToValueAtTime(0.01, t + 0.35);
+        gain.gain.linearRampToValueAtTime(0.12, t + 0.7);
       }
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -175,7 +175,7 @@ const App: React.FC = () => {
                 diff.add(k);
               }
             });
-            // Check for Major Alert triggers (bypasses price ticks)
+            // Check for Major Alert triggers (bypasses generic price ticks for audio/redirect)
             ALERT_TRIGGER_KEYS.forEach(k => {
               if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
                 hasAlertKeyChanged = majorChange = true;
@@ -185,7 +185,6 @@ const App: React.FC = () => {
           }
 
           if (hasAlertKeyChanged) {
-            // Only set/reset timer if it's a major change
             nextMajor[sid] = now + MAJOR_ALERT_DURATION;
             if (s.sheetIndex > topIndex) { topIndex = s.sheetIndex; targetSid = sid; }
             if (s.isBTST && (s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL)) isBTSTUpdate = true;
@@ -193,8 +192,10 @@ const App: React.FC = () => {
           
           if (diff.size > 0) {
             nextHighs[sid] = diff;
-            // Also ensure the highlight itself has a TTL linked to the major alert or a default
-            if (!nextMajor[sid]) nextMajor[sid] = now + MAJOR_ALERT_DURATION;
+            // Ensure any small field change also keeps the highlight alive for its window
+            if (!nextMajor[sid] || nextMajor[sid] < now + MAJOR_ALERT_DURATION) {
+              nextMajor[sid] = now + MAJOR_ALERT_DURATION;
+            }
           }
         });
 

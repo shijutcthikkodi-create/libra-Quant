@@ -155,7 +155,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
         </div>
       )}
 
-      <div className={`flex justify-between items-start p-5 pb-3 ${highlights?.size ? 'animate-box-glow' : ''}`}>
+      <div className={`flex justify-between items-start p-5 pb-3 ${highlights?.has('instrument') || highlights?.has('symbol') || highlights?.has('type') || highlights?.has('action') ? 'animate-box-blink' : ''}`}>
         <div className="flex items-center space-x-3">
           <div className={`p-2 rounded-lg ${isBuy ? 'bg-emerald-900/30 text-emerald-400' : 'bg-rose-900/30 text-rose-400'}`}>
             {isBuy ? <ArrowUpRight size={24} /> : <ArrowDownRight size={24} />}
@@ -191,7 +191,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
                   <Trash2 size={12} />
                 </button>
               )}
-              <div className={`px-3 py-1 rounded text-[10px] font-bold border ${getStatusColor(signal.status)} flex items-center`}>
+              <div className={`px-3 py-1 rounded text-[10px] font-bold border ${getStatusColor(signal.status)} flex items-center ${highlights?.has('status') ? 'animate-box-blink' : ''}`}>
                   {isAllTarget ? <Trophy size={10} className="mr-2" /> : <span className={`w-1.5 h-1.5 rounded-full mr-2 ${isActive ? 'bg-current' : 'bg-current opacity-50'}`}></span>}
                   {signal.status}
               </div>
@@ -204,7 +204,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
       </div>
 
       <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-slate-800">
-        <div className={`bg-slate-900 p-4`}>
+        <div className={`bg-slate-900 p-4 ${highlights?.has('entryPrice') ? 'animate-box-blink' : ''}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 flex items-center">Entry</p>
             <p className="text-xl font-mono font-bold text-white">₹{signal.entryPrice.toFixed(2)}</p>
             {signal.quantity ? (
@@ -214,12 +214,12 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
             ) : null}
         </div>
         
-        <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : 'bg-slate-900'}`}>
+        <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : 'bg-slate-900'} ${highlights?.has('stopLoss') ? 'animate-box-blink' : ''}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Stop Loss</p>
             <p className={`text-xl font-mono font-bold mb-3 ${isSLHit ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
               ₹{signal.stopLoss.toFixed(2)}
             </p>
-            <div className="mt-auto pt-2 border-t border-slate-800/80">
+            <div className={`mt-auto pt-2 border-t border-slate-800/80 ${highlights?.has('trailingSL') ? 'animate-box-blink' : ''}`}>
                 {isEditingTrail ? (
                     <div className="flex items-center space-x-1">
                         <input type="number" value={trailValue} onChange={(e) => setTrailValue(e.target.value)} className="w-full bg-slate-950 border border-blue-500/50 rounded text-[10px] px-2 py-1 text-white focus:outline-none font-mono" autoFocus disabled={isSavingTrail} />
@@ -245,7 +245,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
             </div>
         </div>
 
-        <div className={`p-4 border-l border-slate-800 transition-all duration-700 bg-slate-900`}>
+        <div className={`p-4 border-l border-slate-800 transition-all duration-700 bg-slate-900 ${highlights?.has('cmp') ? 'animate-box-blink' : ''}`}>
             <div className="flex items-center justify-between mb-1.5">
                 <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center">
                   <Activity size={10} className={`mr-1 ${isBTST ? 'text-amber-500' : 'text-blue-500'}`} /> {isExited ? 'EXIT PRICE' : 'CMP'}
@@ -264,7 +264,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
       </div>
 
       {(isExited || signal.pnlPoints !== undefined) && (
-        <div className={`px-5 py-3 flex items-center justify-between border-b border-slate-800 ${ (signal.pnlPoints || 0) >= 0 ? 'bg-emerald-500/5' : 'bg-rose-500/5' }`}>
+        <div className={`px-5 py-3 flex items-center justify-between border-b border-slate-800 ${highlights?.has('pnlPoints') || highlights?.has('pnlRupees') ? 'animate-box-blink' : ''} ${ (signal.pnlPoints || 0) >= 0 ? 'bg-emerald-500/5' : 'bg-rose-500/5' }`}>
             <div className="flex items-center space-x-2">
                 <div className={`p-1.5 rounded-full ${(signal.pnlPoints || 0) >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
                     {(signal.pnlPoints || 0) >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
@@ -291,7 +291,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Targets</span>
             </div>
         </div>
-        <div className={`grid grid-cols-3 gap-2`}>
+        <div className={`grid grid-cols-3 gap-2 ${highlights?.has('targetsHit') || highlights?.has('targets') ? 'animate-box-blink' : ''}`}>
             {signal.targets?.map((t, idx) => {
                 const isHit = isAllTarget || (signal.targetsHit || 0) > idx;
                 return (
@@ -304,7 +304,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
             })}
         </div>
         {signal.comment && (
-            <div className={`mt-4 p-3 rounded-lg border transition-colors ${isSLHit || isTSLHit ? 'bg-rose-950/20 border-rose-500/30' : isAllTarget ? 'bg-emerald-950/20 border-emerald-500/30' : (isBTST ? 'bg-amber-950/20 border-amber-500/30' : 'bg-slate-950/50 border-slate-800/50')}`}>
+            <div className={`mt-4 p-3 rounded-lg border transition-colors ${highlights?.has('comment') ? 'animate-box-blink' : ''} ${isSLHit || isTSLHit ? 'bg-rose-950/20 border-rose-500/30' : isAllTarget ? 'bg-emerald-950/20 border-emerald-500/30' : (isBTST ? 'bg-amber-950/20 border-amber-500/30' : 'bg-slate-950/50 border-slate-800/50')}`}>
                 <p className={`text-xs leading-relaxed ${isSLHit || isTSLHit ? 'text-rose-400 font-bold' : isAllTarget ? 'text-emerald-400 font-bold italic' : (isBTST ? 'text-amber-400 font-bold' : 'text-slate-400')}`}>
                   " {signal.comment} "
                 </p>
