@@ -24,10 +24,6 @@ const SIGNAL_KEYS: Array<keyof TradeSignal> = [
   'quantity', 'cmp', 'isBTST'
 ];
 
-const MAJOR_ALERT_KEYS: Array<keyof TradeSignal> = [
-  'status', 'targetsHit', 'stopLoss', 'trailingSL', 'entryPrice', 'isBTST', 'action', 'instrument', 'comment'
-];
-
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem(SESSION_KEY);
@@ -65,7 +61,7 @@ const App: React.FC = () => {
   const isFetchingRef = useRef(false);
   const isAlertingRef = useRef(false);
 
-  // Audio Context Setup with User Interaction Handling
+  // Resume Audio on first user interaction (Browser Policy)
   useEffect(() => {
     const resume = () => {
       if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
@@ -81,20 +77,26 @@ const App: React.FC = () => {
   }, []);
 
   const handleRedirectToCard = useCallback((id: string) => {
+    // Force switch to dashboard to see the card
     setPage('dashboard');
+    
     let attempts = 0;
     const scrollWithRetry = () => {
       const el = document.getElementById(`signal-${id}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.classList.add('animate-card-pulse', 'focus-indicator');
-        setTimeout(() => el.classList.remove('focus-indicator'), 5000);
-      } else if (attempts < 20) {
+        // Keep the focus ring for the duration of the alert (or 5s)
+        setTimeout(() => {
+          if (el) el.classList.remove('focus-indicator');
+        }, 5000);
+      } else if (attempts < 30) {
         attempts++;
-        setTimeout(scrollWithRetry, 150);
+        setTimeout(scrollWithRetry, 100);
       }
     };
-    setTimeout(scrollWithRetry, 100);
+    // Initial delay to allow React to mount/switch pages
+    setTimeout(scrollWithRetry, 150);
   }, []);
 
   const stopAlertAudio = useCallback(() => {
@@ -112,7 +114,7 @@ const App: React.FC = () => {
     isAlertingRef.current = false;
   }, []);
 
-  const playLongBeep = useCallback((isCritical = false, isBTST = false, isWatchlist = false) => {
+  const playLongBeep = useCallback((isCritical = false, isBTST = false) => {
     if (!soundEnabled || isAlertingRef.current) return;
     
     isAlertingRef.current = true;
@@ -127,22 +129,21 @@ const App: React.FC = () => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       
-      // Select institutional frequency base
-      const baseFreq = isBTST ? 1100 : (isCritical ? 400 : (isWatchlist ? 1200 : 900));
+      const baseFreq = isBTST ? 1200 : (isCritical ? 440 : 880);
       osc.type = (isBTST || isCritical) ? 'square' : 'sine';
-      
-      // Institutional "Warble" / Pulse Effect for the long 15s beep
       osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
       
-      // Create a pulsating intensity for the 15s
-      for (let i = 0; i < MAJOR_ALERT_DURATION / 1000; i++) {
-        const time = ctx.currentTime + i;
-        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.05, time + 0.2);
-        osc.frequency.exponentialRampToValueAtTime(baseFreq, time + 0.4);
+      // Create a pulsating long beep over 15 seconds
+      for (let i = 0; i < (MAJOR_ALERT_DURATION / 1000); i++) {
+        const t = ctx.currentTime + i;
+        // Warble effect for institutional feel
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.02, t + 0.2);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq, t + 0.4);
         
-        gain.gain.setValueAtTime(0.15, time);
-        gain.gain.linearRampToValueAtTime(0.05, time + 0.3);
-        gain.gain.linearRampToValueAtTime(0.15, time + 0.5);
+        // Pumping gain
+        gain.gain.setValueAtTime(0.12, t);
+        gain.gain.linearRampToValueAtTime(0.04, t + 0.3);
+        gain.gain.linearRampToValueAtTime(0.12, t + 0.5);
       }
 
       osc.connect(gain);
@@ -158,7 +159,7 @@ const App: React.FC = () => {
       }, MAJOR_ALERT_DURATION);
 
     } catch (e) {
-      console.error("Audio engine failure", e);
+      console.error("Audio error", e);
       isAlertingRef.current = false;
     }
   }, [soundEnabled, stopAlertAudio]);
@@ -171,10 +172,9 @@ const App: React.FC = () => {
     try {
       const data = await fetchSheetData();
       if (data) {
-        let shouldTriggerAlert = false;
+        let globalAnyChange = false;
         let isCriticalAlert = false;
         let isBTSTUpdate = false;
-        let isWatchlistChange = false;
         let scrollTargetId: string | null = null;
         
         const now = Date.now();
@@ -182,7 +182,7 @@ const App: React.FC = () => {
         const newWatchlistAlerts: Record<string, number> = { ...activeWatchlistAlerts };
         const newHighlights: GranularHighlights = { ...granularHighlights };
 
-        // 1. SIGNAL ANALYSIS
+        // 1. SIGNAL SYNC & ANY CHANGE DETECTION
         data.signals.forEach(s => {
           const sid = s.id;
           const old = prevSignalsRef.current.find(o => o.id === sid);
@@ -190,48 +190,52 @@ const App: React.FC = () => {
           const isActive = s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL;
 
           if (!old) {
+            // NEW SIGNAL
             if (!isInitial && prevSignalsRef.current.length > 0) {
               SIGNAL_KEYS.forEach(k => diff.add(k));
               scrollTargetId = sid;
-              shouldTriggerAlert = true;
+              globalAnyChange = true;
               newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
               if (s.isBTST && isActive) isBTSTUpdate = true;
             }
           } else {
-            let cardHasMajorUpdate = false;
+            let signalHasChanged = false;
             SIGNAL_KEYS.forEach(k => {
               if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
                 diff.add(k);
-                if (MAJOR_ALERT_KEYS.includes(k)) {
-                  cardHasMajorUpdate = true;
-                  shouldTriggerAlert = true;
-                  scrollTargetId = sid;
-                }
+                // Trigger auto-scroll and blinking for ANY change in signal properties
+                signalHasChanged = true;
+                globalAnyChange = true;
+                scrollTargetId = sid;
+
                 if (k === 'status' && s.status === TradeStatus.STOPPED) isCriticalAlert = true;
-                if (s.isBTST && isActive && MAJOR_ALERT_KEYS.includes(k)) isBTSTUpdate = true;
+                if (s.isBTST && isActive) isBTSTUpdate = true;
               }
             });
-            if (cardHasMajorUpdate) newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+            if (signalHasChanged) {
+              newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+            }
           }
           if (diff.size > 0) newHighlights[sid] = diff;
         });
 
-        // 2. WATCHLIST ANALYSIS
+        // 2. WATCHLIST SYNC
         data.watchlist.forEach(w => {
           const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
           if (old && !isInitial) {
             if (Number(w.price) !== Number(old.price) || Number(w.change) !== Number(old.change)) {
-              isWatchlistChange = true;
-              shouldTriggerAlert = true;
+              globalAnyChange = true;
               newWatchlistAlerts[w.symbol] = now + MAJOR_ALERT_DURATION;
             }
           }
         });
 
-        // 3. TRIGGER OUTPUTS
-        if (shouldTriggerAlert) {
-          playLongBeep(isCriticalAlert, isBTSTUpdate, isWatchlistChange);
-          if (scrollTargetId) handleRedirectToCard(scrollTargetId);
+        // 3. EXECUTE ALERTS & SCROLL
+        if (globalAnyChange) {
+          playLongBeep(isCriticalAlert, isBTSTUpdate);
+          if (scrollTargetId && !isInitial) {
+            handleRedirectToCard(scrollTargetId);
+          }
         }
 
         setActiveMajorAlerts(newMajorAlerts);
@@ -256,7 +260,7 @@ const App: React.FC = () => {
     }
   }, [playLongBeep, handleRedirectToCard, activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
 
-  // Alert State Management (Removal after 15s)
+  // Visual Alert Cleanup Engine
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -300,8 +304,9 @@ const App: React.FC = () => {
     if (!next) stopAlertAudio();
     else {
       if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
-      playLongBeep(false, false, false);
-      setTimeout(stopAlertAudio, 1000); // Quick test beep
+      playLongBeep(false, false);
+      // Quick test beep
+      setTimeout(stopAlertAudio, 1000);
     }
   };
 
@@ -329,7 +334,7 @@ const App: React.FC = () => {
               </div>
           </div>
           <div className="flex space-x-1">
-            <button onClick={() => sync(true)} title="Sync" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
+            <button onClick={() => sync(true)} title="Force Sync" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
                 <Database size={14} />
             </button>
           </div>
@@ -352,7 +357,7 @@ const App: React.FC = () => {
         </button>
         <button onClick={() => setPage('booked')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'booked' ? 'text-emerald-500' : 'text-slate-500'}`}>
           <CheckCircle size={24} strokeWidth={page === 'booked' ? 3 : 2} />
-          <span className="text-[10px] font-bold uppercase tracking-tighter">History</span>
+          <span className="text-[10px] font-bold uppercase tracking-tighter">Booked</span>
         </button>
         <button onClick={() => setPage('stats')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'stats' ? 'text-yellow-500' : 'text-slate-500'}`}>
           <BarChart2 size={24} strokeWidth={page === 'stats' ? 3 : 2} />
