@@ -78,13 +78,14 @@
 
       /* AUTO-FOCUS RING */
       @keyframes focus-ring {
-        0% { outline: 15px solid #3b82f6; outline-offset: 30px; opacity: 1; }
-        100% { outline: 3px solid #3b82f6; outline-offset: 0px; opacity: 0; }
+        0% { outline: 30px solid #3b82f6; outline-offset: 60px; opacity: 1; }
+        100% { outline: 4px solid #3b82f6; outline-offset: 0px; opacity: 0; }
       }
       .focus-indicator {
-        animation: focus-ring 1.2s ease-out infinite;
+        animation: focus-ring 1s cubic-bezier(0, 0, 0.2, 1) infinite;
         position: relative;
         border-radius: 12px;
+        z-index: 100;
       }
 
       @keyframes fire-blast {

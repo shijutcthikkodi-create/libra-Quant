@@ -84,31 +84,44 @@ const App: React.FC = () => {
     };
   }, []);
 
+  /**
+   * AUTOMATIC REDIRECT ENGINE:
+   * When a signal is targeted, we force the UI to Dashboard and then
+   * use an exponential retry scroll to ensure the element is in DOM.
+   */
   const handleRedirectToCard = useCallback((id: string) => {
-    // 1. Force navigation to dashboard
+    // 1. Force navigation to dashboard immediately
     setPage('dashboard');
     
-    // 2. Wait for React render cycle and attempt scroll with retries
+    // 2. Clear previous focus indicators globally
+    const previousFocus = document.querySelectorAll('.focus-indicator');
+    previousFocus.forEach(el => el.classList.remove('focus-indicator', 'animate-card-pulse'));
+
+    // 3. Retry loop for scrolling (handling React render delay)
     let attempts = 0;
+    const maxAttempts = 30;
+    
     const scrollWithRetry = () => {
       const el = document.getElementById(`signal-${id}`);
       if (el) {
-        // Institutional Smooth Scroll
+        // High-precision scroll to center
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         
-        // Apply visual focus indicators
+        // Apply intense visual alerts
         el.classList.add('animate-card-pulse', 'focus-indicator');
+        
+        // Remove highlight after 10s to clean up UI
         setTimeout(() => {
-          if (el) el.classList.remove('focus-indicator');
-        }, 5000);
-      } else if (attempts < 25) {
+          if (el) el.classList.remove('focus-indicator', 'animate-card-pulse');
+        }, 10000);
+      } else if (attempts < maxAttempts) {
         attempts++;
-        setTimeout(scrollWithRetry, 100);
+        // Use exponential-like backoff for retries
+        setTimeout(scrollWithRetry, 50 + (attempts * 10));
       }
     };
     
-    // Small delay to allow page switch to register
-    setTimeout(scrollWithRetry, 150);
+    setTimeout(scrollWithRetry, 100);
   }, []);
 
   const stopAlertAudio = useCallback(() => {
@@ -135,10 +148,8 @@ const App: React.FC = () => {
       }
       const ctx = audioCtxRef.current;
       
-      // If still suspended, we can't play sound yet (waiting for first click)
       if (ctx.state === 'suspended') {
         ctx.resume();
-        // If it's still suspended after resume call, browser is blocking it.
         if (ctx.state === 'suspended') return;
       }
 
@@ -147,20 +158,16 @@ const App: React.FC = () => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       
-      // Select appropriate institutional frequency
       const baseFreq = isBTST ? 1100 : (isCritical ? 420 : 840);
       osc.type = (isBTST || isCritical) ? 'square' : 'sine';
       osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
       
-      // Create a 15-second pulsating alarm effect
       const durationSeconds = MAJOR_ALERT_DURATION / 1000;
       for (let i = 0; i < durationSeconds; i++) {
         const t = ctx.currentTime + i;
-        // Frequency Warble (Urgency)
         osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.03, t + 0.2);
         osc.frequency.exponentialRampToValueAtTime(baseFreq, t + 0.4);
         
-        // Pumping Volume
         gain.gain.setValueAtTime(0.15, t);
         gain.gain.linearRampToValueAtTime(0.03, t + 0.3);
         gain.gain.linearRampToValueAtTime(0.15, t + 0.5);
@@ -173,7 +180,6 @@ const App: React.FC = () => {
       activeOscillatorRef.current = osc;
       activeGainRef.current = gain;
 
-      // MANDATORY 15s KILL SWITCH
       setTimeout(() => {
         stopAlertAudio();
       }, MAJOR_ALERT_DURATION);
@@ -195,51 +201,54 @@ const App: React.FC = () => {
         let anyChangeDetected = false;
         let isCriticalAlert = false;
         let isBTSTUpdate = false;
-        let scrollTargetId: string | null = null;
+        
+        // Track the absolute newest signal that changed (by sheetIndex)
+        let latestUpdatedSid: string | null = null;
+        let highestSheetIndex = -1;
         
         const now = Date.now();
         const newMajorAlerts: Record<string, number> = { ...activeMajorAlerts };
         const newWatchlistAlerts: Record<string, number> = { ...activeWatchlistAlerts };
         const newHighlights: GranularHighlights = { ...granularHighlights };
 
-        // 1. PROCESS SIGNALS
         data.signals.forEach(s => {
           const sid = s.id;
           const old = prevSignalsRef.current.find(o => o.id === sid);
           const diff = new Set<string>();
           const isActive = s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL;
 
+          let cardUpdated = false;
+
           if (!old) {
-            // New Signal Broadcast
             if (!isInitial && prevSignalsRef.current.length > 0) {
               SIGNAL_KEYS.forEach(k => diff.add(k));
               anyChangeDetected = true;
-              scrollTargetId = sid;
-              newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+              cardUpdated = true;
               if (s.isBTST && isActive) isBTSTUpdate = true;
             }
           } else {
-            let cardHasUpdate = false;
             SIGNAL_KEYS.forEach(k => {
               if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
                 diff.add(k);
-                // Trigger scroll and audio for ANY card-level change
-                cardHasUpdate = true;
+                cardUpdated = true;
                 anyChangeDetected = true;
-                scrollTargetId = sid;
-
                 if (k === 'status' && s.status === TradeStatus.STOPPED) isCriticalAlert = true;
                 if (s.isBTST && isActive) isBTSTUpdate = true;
               }
             });
-            if (cardHasUpdate) {
-              newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+          }
+
+          if (cardUpdated) {
+            newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+            // Prioritize redirecting to the signal with highest sheetIndex (newest row)
+            if (s.sheetIndex > highestSheetIndex) {
+              highestSheetIndex = s.sheetIndex;
+              latestUpdatedSid = sid;
             }
           }
           if (diff.size > 0) newHighlights[sid] = diff;
         });
 
-        // 2. PROCESS WATCHLIST
         data.watchlist.forEach(w => {
           const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
           if (old && !isInitial) {
@@ -250,11 +259,11 @@ const App: React.FC = () => {
           }
         });
 
-        // 3. TRIGGER ALERTS & NAVIGATION
+        // 3. TRIGGER ALERTS & AUTOMATIC REDIRECT
         if (anyChangeDetected) {
           playLongBeep(isCriticalAlert, isBTSTUpdate);
-          if (scrollTargetId && !isInitial) {
-            handleRedirectToCard(scrollTargetId);
+          if (latestUpdatedSid && !isInitial) {
+            handleRedirectToCard(latestUpdatedSid);
           }
         }
 
@@ -280,7 +289,6 @@ const App: React.FC = () => {
     }
   }, [playLongBeep, handleRedirectToCard, activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
 
-  // Alert State Expiry (Visual Clean-up)
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -324,13 +332,12 @@ const App: React.FC = () => {
     if (!next) {
       stopAlertAudio();
     } else {
-      // Warm up audio context immediately
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
       audioCtxRef.current.resume();
       playLongBeep(false, false);
-      setTimeout(stopAlertAudio, 1000); // 1s test tone
+      setTimeout(stopAlertAudio, 1000); 
     }
   };
 
