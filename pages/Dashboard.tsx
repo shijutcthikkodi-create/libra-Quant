@@ -193,7 +193,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                     {watchlist.length > 0 && (
                       <div className="flex items-center space-x-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
                         <span className="text-[9px] font-black text-emerald-500 uppercase">Live Feed</span>
                       </div>
                     )}
@@ -220,12 +219,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                               </div>
                           </div>
                         );
-                    }) : (
-                        <div className="p-8 text-center">
-                            <Loader2 size={24} className="animate-spin mx-auto text-slate-700 mb-2" />
-                            <p className="text-slate-500 text-xs italic">Syncing market feed...</p>
-                        </div>
-                    )}
+                    }) : null}
                 </div>
              </div>
           </div>
