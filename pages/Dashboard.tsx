@@ -1,7 +1,7 @@
 
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import SignalCard from '../components/SignalCard';
-import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon, ShieldAlert, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
+import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon, ShieldAlert, Loader2, ShieldCheck, ArrowRight, Send, Timer } from 'lucide-react';
 import { WatchlistItem, TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
@@ -61,6 +61,11 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [signals]);
 
+  const lastGivenTrade = useMemo(() => {
+    if (!signals || signals.length === 0) return null;
+    return [...signals].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+  }, [signals]);
+
   const activeBTSTs = useMemo(() => {
     return liveSignals.filter(s => s.isBTST && (s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL));
   }, [liveSignals]);
@@ -80,8 +85,66 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [otherLiveSignals]);
 
+  const scrollToSignal = (id: string) => {
+      const el = document.getElementById(`signal-${id}`);
+      if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('animate-card-pulse');
+          setTimeout(() => el.classList.remove('animate-card-pulse'), 3000);
+      }
+  };
+
+  const timeSince = (timestamp: string) => {
+    const seconds = Math.floor((new Date().getTime() - new Date(timestamp).getTime()) / 1000);
+    if (seconds < 60) return "JUST NOW";
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}M AGO`;
+    return `${Math.floor(seconds / 3600)}H AGO`;
+  };
+
   return (
     <div className="space-y-6">
+      {/* LAST GIVEN TRADE BANNER */}
+      {lastGivenTrade && (
+        <div 
+          onClick={() => scrollToSignal(lastGivenTrade.id)}
+          className="relative group cursor-pointer overflow-hidden rounded-2xl border border-blue-500/30 bg-gradient-to-r from-slate-900 via-blue-900/40 to-slate-900 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-700"
+        >
+          <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          <div className="flex items-center p-3 sm:p-4">
+              <div className="flex-shrink-0 mr-4 hidden sm:block">
+                  <div className="w-12 h-12 rounded-xl bg-blue-600/20 flex items-center justify-center text-blue-400 border border-blue-500/30 animate-pulse">
+                      <Send size={24} />
+                  </div>
+              </div>
+              <div className="flex-grow">
+                  <div className="flex items-center space-x-2 mb-1">
+                      <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[9px] font-black uppercase tracking-widest animate-pulse">Last Given Trade</span>
+                      <span className="text-[9px] font-mono font-black text-blue-400 flex items-center">
+                          <Timer size={10} className="mr-1" /> {timeSince(lastGivenTrade.timestamp)}
+                      </span>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-x-3">
+                      <h3 className="text-lg sm:text-xl font-black text-white tracking-tighter uppercase font-mono">
+                          {lastGivenTrade.instrument} {lastGivenTrade.symbol} {lastGivenTrade.type}
+                      </h3>
+                      <div className="flex items-center text-xs font-bold space-x-2">
+                          <span className={`px-2 py-0.5 rounded ${lastGivenTrade.action === 'BUY' ? 'text-emerald-400 bg-emerald-400/10' : 'text-rose-400 bg-rose-400/10'}`}>
+                              {lastGivenTrade.action} @ ₹{lastGivenTrade.entryPrice}
+                          </span>
+                      </div>
+                  </div>
+              </div>
+              <div className="flex-shrink-0 ml-4">
+                  <div className="p-2 rounded-full bg-slate-800 text-slate-400 group-hover:text-blue-400 group-hover:bg-blue-400/10 transition-all">
+                      <ArrowRight size={20} />
+                  </div>
+              </div>
+          </div>
+          {/* Subtle Progress Scanner Effect */}
+          <div className="absolute bottom-0 left-0 h-[2px] bg-blue-500 w-full opacity-30 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-700"></div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1 flex items-center">
