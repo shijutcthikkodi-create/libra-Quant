@@ -18,14 +18,16 @@ const MAJOR_ALERT_DURATION = 15000; // STRICT 15s
 
 export type GranularHighlights = Record<string, Set<string>>;
 
+// We track every property for changes now
 const SIGNAL_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
   'stopLoss', 'targets', 'trailingSL', 'status', 'pnlPoints', 'pnlRupees', 'comment', 'targetsHit',
   'quantity', 'cmp', 'isBTST'
 ];
 
+// Triggers for Beep and Auto-Scroll
 const MAJOR_ALERT_KEYS: Array<keyof TradeSignal> = [
-  'status', 'targetsHit', 'stopLoss', 'entryPrice', 'isBTST', 'action', 'instrument'
+  'status', 'targetsHit', 'stopLoss', 'trailingSL', 'entryPrice', 'isBTST', 'action', 'instrument', 'comment'
 ];
 
 const App: React.FC = () => {
@@ -64,36 +66,45 @@ const App: React.FC = () => {
   const isFetchingRef = useRef(false);
   const isAlertingRef = useRef(false);
 
-  // Resume Audio on ANY user interaction
+  // Resume Audio on ANY user interaction (Required for Browser Auto-play Policy)
   useEffect(() => {
     const resume = () => {
       if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
         audioCtxRef.current.resume();
       }
     };
-    window.addEventListener('click', resume);
-    window.addEventListener('touchstart', resume);
+    window.addEventListener('mousedown', resume, { once: true });
+    window.addEventListener('touchstart', resume, { once: true });
+    window.addEventListener('keydown', resume, { once: true });
     return () => {
-      window.removeEventListener('click', resume);
+      window.removeEventListener('mousedown', resume);
       window.removeEventListener('touchstart', resume);
+      window.removeEventListener('keydown', resume);
     };
   }, []);
 
   const handleRedirectToCard = useCallback((id: string) => {
-    // If not on dashboard, switch first
+    // If not on dashboard, switch immediately
     setPage('dashboard');
     
-    // Give time for layout to render
-    setTimeout(() => {
+    // Attempt to scroll with retries to account for React rendering lag
+    let attempts = 0;
+    const scrollWithRetry = () => {
       const el = document.getElementById(`signal-${id}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.classList.add('animate-card-pulse', 'focus-indicator');
+        // Clean up visual indicator after a few seconds
         setTimeout(() => {
           el.classList.remove('focus-indicator');
-        }, 3000);
+        }, 5000);
+      } else if (attempts < 20) {
+        attempts++;
+        setTimeout(scrollWithRetry, 100);
       }
-    }, 500);
+    };
+    
+    setTimeout(scrollWithRetry, 100);
   }, []);
 
   const playAlertSequence = useCallback((isCritical = false, isBTST = false, isWatchlist = false) => {
@@ -112,57 +123,52 @@ const App: React.FC = () => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         
-        // High visibility Institutional Tones
-        const frequency = isBTST ? 1400 : (isCritical ? 420 : (isWatchlist ? 1100 : 920));
+        // Institutional Tones (Different frequencies for different alerts)
+        const frequency = isBTST ? 1400 : (isCritical ? 380 : (isWatchlist ? 1150 : 880));
         osc.type = (isBTST || isCritical) ? 'square' : 'sine';
         
         osc.frequency.setValueAtTime(frequency, ctx.currentTime);
         gain.gain.setValueAtTime(0, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.1); 
-        gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.5); 
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.9);
+        gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.05); 
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
         
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
-        osc.stop(ctx.currentTime + 1.0);
+        osc.stop(ctx.currentTime + 0.8);
 
-        // Echo for urgency
+        // Urgency Echo for Major Alerts
         if (isBTST || isCritical) {
             setTimeout(() => {
                 if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') return;
                 const osc2 = audioCtxRef.current.createOscillator();
                 const gain2 = audioCtxRef.current.createGain();
-                osc2.type = 'square';
-                osc2.frequency.setValueAtTime(frequency * 1.5, audioCtxRef.current.currentTime);
+                osc2.type = 'sawtooth';
+                osc2.frequency.setValueAtTime(frequency * 0.8, audioCtxRef.current.currentTime);
                 gain2.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
-                gain2.gain.linearRampToValueAtTime(0.15, audioCtxRef.current.currentTime + 0.05);
-                gain2.gain.exponentialRampToValueAtTime(0.0001, audioCtxRef.current.currentTime + 0.4);
+                gain2.gain.linearRampToValueAtTime(0.1, audioCtxRef.current.currentTime + 0.02);
+                gain2.gain.exponentialRampToValueAtTime(0.0001, audioCtxRef.current.currentTime + 0.3);
                 osc2.connect(gain2);
                 gain2.connect(audioCtxRef.current.destination);
                 osc2.start();
-                osc2.stop(audioCtxRef.current.currentTime + 0.4);
-            }, 200);
+                osc2.stop(audioCtxRef.current.currentTime + 0.3);
+            }, 150);
         }
       } catch (e) {
         console.error("Audio error", e);
       }
     };
 
-    // Initial Beep
+    // Start Beeping
     playBeep();
-    
-    // Interval for 15 seconds
-    const interval = setInterval(playBeep, isBTST ? 1200 : 2200);
+    const interval = setInterval(playBeep, isBTST ? 1000 : 2000);
     beepIntervalRef.current = interval;
     
-    // STRICT 15s KILL SWITCH
+    // MANDATORY 15s KILL SWITCH - Stops beep and allows next alert cycle
     setTimeout(() => {
-      if (beepIntervalRef.current === interval) {
-        clearInterval(beepIntervalRef.current);
-        beepIntervalRef.current = null;
-        isAlertingRef.current = false;
-      }
+      clearInterval(interval);
+      if (beepIntervalRef.current === interval) beepIntervalRef.current = null;
+      isAlertingRef.current = false;
     }, MAJOR_ALERT_DURATION);
   }, [soundEnabled]);
 
@@ -185,7 +191,7 @@ const App: React.FC = () => {
         const newWatchlistAlerts: Record<string, number> = { ...activeWatchlistAlerts };
         const newHighlights: GranularHighlights = { ...granularHighlights };
 
-        // 1. SIGNAL SYNC
+        // 1. SIGNAL SYNC & DETECTION
         data.signals.forEach(s => {
           const sid = s.id;
           const old = prevSignalsRef.current.find(o => o.id === sid);
@@ -193,7 +199,7 @@ const App: React.FC = () => {
           const isActiveTrade = s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL;
 
           if (!old) {
-            // New Trade Detected
+            // NEW TRADE
             if (!isInitial && prevSignalsRef.current.length > 0) {
               SIGNAL_KEYS.forEach(k => diff.add(k));
               scrollTargetId = sid;
@@ -202,52 +208,58 @@ const App: React.FC = () => {
               if (s.isBTST && isActiveTrade) isBTSTUpdate = true;
             }
           } else {
-            let signalHasMajorChange = false;
+            let signalHasUpdate = false;
             SIGNAL_KEYS.forEach(k => {
-              if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
+              const val1 = JSON.stringify(s[k]);
+              const val2 = JSON.stringify(old[k]);
+              
+              if (val1 !== val2) {
                 diff.add(k);
-                // Major Property Changed
-                if (MAJOR_ALERT_KEYS.includes(k) && isActiveTrade) {
-                  signalHasMajorChange = true;
+                // If it's a major property, trigger alert and scroll
+                if (MAJOR_ALERT_KEYS.includes(k)) {
+                  signalHasUpdate = true;
                   hasGlobalMajorChange = true;
                   scrollTargetId = sid;
                 }
-                if (s.isBTST && isActiveTrade && MAJOR_ALERT_KEYS.includes(k)) isBTSTUpdate = true;
-                if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) diff.add('blast'); 
+                
+                // Specific Logic for SL Hits
                 if (k === 'status' && s.status === TradeStatus.STOPPED && old.status !== TradeStatus.STOPPED) {
                   isCriticalAlert = true;
                   diff.add('blast-red');
-                  signalHasMajorChange = true;
-                  hasGlobalMajorChange = true;
-                  scrollTargetId = sid;
                 }
+                // Specific Logic for Targets
+                if (k === 'targetsHit' && (s.targetsHit || 0) > (old.targetsHit || 0)) {
+                  diff.add('blast'); 
+                }
+                
+                if (s.isBTST && isActiveTrade && MAJOR_ALERT_KEYS.includes(k)) isBTSTUpdate = true;
               }
             });
-            if (signalHasMajorChange) newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+            
+            if (signalHasUpdate) {
+              newMajorAlerts[sid] = now + MAJOR_ALERT_DURATION;
+            }
           }
           if (diff.size > 0) newHighlights[sid] = diff;
         });
 
-        // 2. WATCHLIST SYNC (Strict Numeric Comparison)
+        // 2. WATCHLIST SYNC
         data.watchlist.forEach(w => {
           const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
           if (old && !isInitial) {
-            const p1 = Number(w.price);
-            const p2 = Number(old.price);
-            const c1 = Number(w.change);
-            const c2 = Number(old.change);
-            
-            if (p1 !== p2 || c1 !== c2) {
+            if (Number(w.price) !== Number(old.price) || Number(w.change) !== Number(old.change)) {
               isWatchlistChange = true;
               newWatchlistAlerts[w.symbol] = now + MAJOR_ALERT_DURATION;
             }
           }
         });
 
-        // 3. TRIGGER ALERTS
+        // 3. EXECUTE ALERTS & NAVIGATION
         if (hasGlobalMajorChange || isWatchlistChange) {
           playAlertSequence(isCriticalAlert, isBTSTUpdate, isWatchlistChange);
-          if (scrollTargetId && !isInitial) handleRedirectToCard(scrollTargetId);
+          if (scrollTargetId && !isInitial) {
+            handleRedirectToCard(scrollTargetId);
+          }
         }
 
         setActiveMajorAlerts(newMajorAlerts);
@@ -274,16 +286,16 @@ const App: React.FC = () => {
     }
   }, [playAlertSequence, handleRedirectToCard, activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
 
-  // Alert State Expiry Engine
+  // Visual Cleanup Engine (Expired alerts after 15s)
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
       let changed = false;
-      const nextAlerts = { ...activeMajorAlerts };
-      const nextWatchAlerts = { ...activeWatchlistAlerts };
+      const nextMajor = { ...activeMajorAlerts };
+      const nextWatch = { ...activeWatchlistAlerts };
       const nextHighlights = { ...granularHighlights };
 
-      [nextAlerts, nextWatchAlerts].forEach(obj => {
+      [nextMajor, nextWatch].forEach(obj => {
         Object.keys(obj).forEach(key => {
           if (now > obj[key]) {
             delete obj[key];
@@ -294,8 +306,8 @@ const App: React.FC = () => {
       });
 
       if (changed) {
-        setActiveMajorAlerts(nextAlerts);
-        setActiveWatchlistAlerts(nextWatchAlerts);
+        setActiveMajorAlerts(nextMajor);
+        setActiveWatchlistAlerts(nextWatch);
         setGranularHighlights(nextHighlights);
       }
     }, 1000);
@@ -326,7 +338,6 @@ const App: React.FC = () => {
     setSoundEnabled(next);
     localStorage.setItem('libra_sound_enabled', String(next));
     if (next) {
-      // Create context immediately on button click
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
@@ -350,14 +361,14 @@ const App: React.FC = () => {
       <div className="fixed top-4 right-4 z-[100] flex flex-col items-end space-y-3">
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl transition-all duration-500 flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">
-              <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">Server Connectivity</span>
+              <span className="text-[9px] text-slate-500 uppercase tracking-tighter leading-none mb-1">Terminal Link</span>
               <div className="flex items-center">
                  <div className={`w-1.5 h-1.5 rounded-full mr-1.5 ${connectionStatus === 'syncing' ? 'bg-blue-400 animate-pulse' : connectionStatus === 'error' ? 'bg-rose-500 animate-ping' : 'bg-emerald-500'}`}></div>
                  <span className={`${connectionStatus === 'error' ? 'text-rose-400' : 'text-white'} font-mono`}>{lastSyncTime}</span>
               </div>
           </div>
           <div className="flex space-x-1">
-            <button onClick={handleHardSync} title="Reload Data" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
+            <button onClick={handleHardSync} title="Deep Sync" className="p-1.5 rounded-lg bg-slate-800 text-blue-400 hover:bg-blue-500/10 transition-all border border-blue-500/20">
                 <Database size={14} />
             </button>
             <button onClick={() => sync(false)} disabled={connectionStatus === 'syncing'} className={`p-1.5 rounded-lg transition-all ${connectionStatus === 'error' ? 'bg-rose-500 text-white animate-bounce' : 'text-slate-500 hover:text-white'}`}>
