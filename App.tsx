@@ -9,7 +9,7 @@ import Admin from './pages/Admin';
 import BookedTrades from './pages/BookedTrades';
 import { User, WatchlistItem, TradeSignal, TradeStatus, LogEntry, ChatMessage } from './types';
 import { fetchSheetData, updateSheetData } from './services/googleSheetsService';
-import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database } from 'lucide-react';
+import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw, WifiOff, Database, Zap } from 'lucide-react';
 
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
@@ -18,13 +18,11 @@ const MAJOR_ALERT_DURATION = 15000; // STRICT 15s Alert window
 
 export type GranularHighlights = Record<string, Set<string>>;
 
-// These keys trigger the 15s beep and card pulse (Broadcasting/Update/Price events)
 const ALERT_TRIGGER_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
   'stopLoss', 'targets', 'status', 'targetsHit', 'isBTST', 'trailingSL', 'cmp', 'comment'
 ];
 
-// All keys that can cause a box to blink
 const ALL_SIGNAL_KEYS: Array<keyof TradeSignal> = [
   ...ALERT_TRIGGER_KEYS, 'pnlPoints', 'pnlRupees', 'quantity'
 ];
@@ -53,6 +51,7 @@ const App: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'error' | 'syncing'>('syncing');
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
+  const [audioInitialized, setAudioInitialized] = useState(false);
   
   const [activeMajorAlerts, setActiveMajorAlerts] = useState<Record<string, number>>({});
   const [activeWatchlistAlerts, setActiveWatchlistAlerts] = useState<Record<string, number>>({});
@@ -67,32 +66,39 @@ const App: React.FC = () => {
   const alertTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
 
-  useEffect(() => {
-    const initAudio = () => {
+  const initAudio = useCallback(() => {
+    try {
       if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
-    };
+      setAudioInitialized(true);
+    } catch (e) {
+      console.error("Audio init failed", e);
+    }
+  }, []);
+
+  useEffect(() => {
     window.addEventListener('click', initAudio, { once: true });
     window.addEventListener('touchstart', initAudio, { once: true });
     return () => {
       window.removeEventListener('click', initAudio);
       window.removeEventListener('touchstart', initAudio);
     };
-  }, []);
+  }, [initAudio]);
 
   const handleRedirectToCard = useCallback((id: string) => {
     setPage('dashboard');
-    let attempts = 0;
-    const scrollWithRetry = () => {
+    const scrollTask = () => {
       const el = document.getElementById(`signal-${id}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      } else if (attempts < 10) {
-        attempts++;
-        setTimeout(scrollWithRetry, 300);
+      const container = document.getElementById('app-main-container');
+      if (el && container) {
+        const offset = 80; // Account for mobile header
+        const elementPosition = el.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + container.scrollTop - offset;
+        container.scrollTo({ top: offsetPosition, behavior: 'smooth' });
       }
     };
-    setTimeout(scrollWithRetry, 300);
+    // Give time for page render
+    setTimeout(scrollTask, 350);
   }, []);
 
   const stopAlertAudio = useCallback(() => {
@@ -114,13 +120,13 @@ const App: React.FC = () => {
   }, []);
 
   const playLongBeep = useCallback((isCritical = false, isBTST = false) => {
-    if (!soundEnabled) return;
+    if (!soundEnabled || !audioInitialized) return;
     
     stopAlertAudio();
 
     try {
-      if (!audioCtxRef.current) audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       const ctx = audioCtxRef.current;
+      if (!ctx) return;
       if (ctx.state === 'suspended') ctx.resume();
 
       const osc = ctx.createOscillator();
@@ -152,7 +158,7 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Audio Playback Failed", e);
     }
-  }, [soundEnabled, stopAlertAudio]);
+  }, [soundEnabled, audioInitialized, stopAlertAudio]);
 
   const sync = useCallback(async (isInitial = false) => {
     if (isFetchingRef.current) return;
@@ -173,7 +179,6 @@ const App: React.FC = () => {
         const now = Date.now();
         const expirationTime = now + MAJOR_ALERT_DURATION;
 
-        // Using functional updates to avoid race conditions with existing timers
         setActiveMajorAlerts(prevMajor => {
           const nextMajor = { ...prevMajor };
           setActiveWatchlistAlerts(prevWatch => {
@@ -254,12 +259,9 @@ const App: React.FC = () => {
     }
   }, [playLongBeep, handleRedirectToCard]);
 
-  // Robust Cleanup Timer - Uses a single interval with functional state updates
-  // This ensures timers strictly end after 15s even if the state is frequently updated.
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
-      
       setActiveMajorAlerts(prev => {
         const next = { ...prev };
         let changed = false;
@@ -269,9 +271,7 @@ const App: React.FC = () => {
             changed = true;
           }
         });
-        
         if (changed) {
-          // Sync granular highlights removal with major alert removal
           setGranularHighlights(prevHighs => {
             const nextHighs = { ...prevHighs };
             Object.keys(prev).forEach(key => {
@@ -303,7 +303,15 @@ const App: React.FC = () => {
   useEffect(() => {
     sync(true);
     const poll = setInterval(() => sync(false), POLL_INTERVAL);
-    return () => clearInterval(poll);
+    
+    // Immediate sync when app comes to foreground (prevents stale data on mobile)
+    const handleVisibility = () => { if (!document.hidden) sync(false); };
+    document.addEventListener('visibilitychange', handleVisibility);
+    
+    return () => {
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [sync]);
 
   const toggleSound = () => {
@@ -311,6 +319,7 @@ const App: React.FC = () => {
     setSoundEnabled(next);
     localStorage.setItem('libra_sound_enabled', String(next));
     if (!next) stopAlertAudio();
+    if (next && !audioInitialized) initAudio();
   };
 
   if (!user) return <Login onLogin={(u) => {
@@ -321,6 +330,24 @@ const App: React.FC = () => {
 
   return (
     <Layout user={user} onLogout={() => { localStorage.removeItem(SESSION_KEY); setUser(null); }} currentPage={page} onNavigate={setPage}>
+      
+      {/* Mobile Audio Unlocker - Mandatory for iOS Safari Audio Context */}
+      {user && !audioInitialized && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
+          <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white mb-6 animate-pulse shadow-[0_0_40px_rgba(37,99,235,0.4)]">
+            <Zap size={40} />
+          </div>
+          <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-tighter">Initialize Terminal</h2>
+          <p className="text-slate-400 text-sm mb-8 max-w-xs">Tap below to activate real-time institutional alerts and secure audio stream.</p>
+          <button 
+            onClick={initAudio} 
+            className="w-full max-w-xs bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl shadow-xl shadow-blue-900/40 uppercase tracking-[0.2em] text-xs transition-all active:scale-95"
+          >
+            Activate Live Feed
+          </button>
+        </div>
+      )}
+
       <div className="fixed top-4 right-4 z-[100] flex flex-col items-end space-y-3">
         <div className={`bg-slate-900/95 backdrop-blur-md px-3 py-2 rounded-xl text-[10px] font-bold border shadow-2xl flex items-center ${connectionStatus === 'error' ? 'border-rose-500 bg-rose-950/20' : 'border-slate-800'}`}>
           <div className="flex flex-col items-start mr-3">
@@ -332,7 +359,7 @@ const App: React.FC = () => {
           </div>
           <button onClick={() => sync(true)} className="p-1.5 rounded-lg bg-slate-800 text-blue-400 border border-blue-500/20"><Database size={14} /></button>
         </div>
-        <button onClick={toggleSound} className={`p-4 rounded-full border shadow-2xl transition-all ${soundEnabled ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400 shadow-cyan-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
+        <button onClick={toggleSound} className={`p-4 rounded-full border shadow-2xl transition-all active:scale-90 ${soundEnabled ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400 shadow-cyan-500/10' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>
           {soundEnabled ? <Volume2 size={32} /> : <VolumeX size={32} />}
         </button>
       </div>
@@ -343,7 +370,7 @@ const App: React.FC = () => {
       {page === 'rules' && <Rules />}
       {user?.isAdmin && page === 'admin' && <Admin watchlist={watchlist} onUpdateWatchlist={() => {}} signals={signals} onUpdateSignals={() => {}} users={users} onUpdateUsers={() => {}} logs={logs} onNavigate={setPage} onHardSync={() => sync(true)} />}
 
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-[100] bg-slate-900/80 backdrop-blur-xl border-t border-slate-800 px-6 py-3 flex justify-around items-center">
+      <div className="md:hidden fixed bottom-4 left-4 right-4 z-[100] bg-slate-900/90 backdrop-blur-xl border border-slate-800 px-6 py-4 flex justify-around items-center rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
         <button onClick={() => setPage('dashboard')} className={`flex flex-col items-center space-y-1 transition-all ${page === 'dashboard' ? 'text-blue-500' : 'text-slate-500'}`}>
           <Radio size={24} strokeWidth={page === 'dashboard' ? 3 : 2} />
           <span className="text-[10px] font-bold uppercase tracking-tighter">Live</span>

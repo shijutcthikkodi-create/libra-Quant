@@ -127,7 +127,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
   };
 
   return (
-    <div className={`min-h-screen flex flex-col md:flex-row relative overflow-hidden ${!isTabFocused ? 'app-protected' : ''} ${!user?.isAdmin ? 'no-screenshot' : ''}`}>
+    <div className={`h-[100dvh] flex flex-col md:flex-row relative overflow-hidden ${!isTabFocused ? 'app-protected' : ''} ${!user?.isAdmin ? 'no-screenshot' : ''}`}>
       {!isTabFocused && !user?.isAdmin && (
         <div className="fixed inset-0 z-[99999] bg-slate-950/80 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-6">
           <EyeOff size={64} className="text-slate-500 mb-4 animate-pulse" />
@@ -137,7 +137,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
       )}
 
       {/* Mobile Header */}
-      <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-50 sticky top-0 shadow-xl">
+      <div className="md:hidden bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center z-50 sticky top-0 shadow-xl flex-shrink-0">
         <div className="flex items-center space-x-2">
             <div className="w-8 h-8 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-lg flex items-center justify-center text-white shadow-lg">
                 <Scale size={18} strokeWidth={2.5} />
@@ -157,7 +157,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
       <aside
         className={`fixed md:relative z-40 top-0 left-0 h-full w-64 bg-slate-900 border-r border-slate-800 transform transition-transform duration-300 ease-in-out ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        } flex flex-col shadow-2xl`}
+        } flex flex-col shadow-2xl flex-shrink-0`}
       >
         <div className="p-6 hidden md:flex items-center space-x-3 mb-6">
           <div className="w-10 h-10 bg-gradient-to-tr from-pink-500 to-purple-600 rounded-xl flex items-center justify-center text-white shadow-lg">
@@ -175,7 +175,6 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
           <NavItem page="stats" icon={BarChart2} label="P&L Analytics" />
           <NavItem page="rules" icon={ShieldAlert} label="Rules & Disclaimer" />
           
-          {/* Admin Panel and Demat Option Area */}
           <div className="mt-4 pt-4 border-t border-slate-800/50 space-y-2">
             {user?.isAdmin && <NavItem page="admin" icon={FileText} label="Admin Panel" />}
             
@@ -214,8 +213,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
         </div>
       </aside>
 
-      <main className="flex-1 h-screen overflow-y-auto bg-slate-950 relative z-10">
-        <div className="p-4 md:p-8 max-w-7xl mx-auto pb-24">
+      <main id="app-main-container" className="flex-1 h-full overflow-y-auto bg-slate-950 relative z-10 scroll-smooth">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto pb-32 md:pb-24">
             {children}
         </div>
         <div className="bg-slate-900/95 border-t border-slate-800 p-2 text-center fixed bottom-0 w-full md:w-[calc(100%-16rem)] right-0 backdrop-blur-md z-50 flex flex-col items-center justify-center space-y-1">
