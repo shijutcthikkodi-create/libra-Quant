@@ -135,21 +135,22 @@ const App: React.FC = () => {
       osc.type = (isBTST || isCritical) ? 'square' : 'sine';
       osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
       
-      // Pattern: Two Long Beeps (6s Beep -> 2s Silence -> 6s Beep)
+      // Pattern: Two Long Beeps of 5 seconds each
+      // Total timeline: 0s-5s (Beep 1) -> 5s-7.5s (Silence) -> 7.5s-12.5s (Beep 2) -> 12.5s-15s (Silence)
       const now = ctx.currentTime;
       
-      // First Beep: 0s to 6s
+      // First Beep: 0s to 5.0s
       gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.15, now + 0.1); // Fade In
-      gain.gain.setValueAtTime(0.15, now + 5.9);
-      gain.gain.linearRampToValueAtTime(0, now + 6.0); // Fade Out
+      gain.gain.linearRampToValueAtTime(0.15, now + 0.1); 
+      gain.gain.setValueAtTime(0.15, now + 4.9);
+      gain.gain.linearRampToValueAtTime(0, now + 5.0); 
       
-      // Second Beep: 8s to 14s
-      const secondStart = now + 8.0;
+      // Second Beep: 7.5s to 12.5s
+      const secondStart = now + 7.5;
       gain.gain.setValueAtTime(0, secondStart);
-      gain.gain.linearRampToValueAtTime(0.15, secondStart + 0.1); // Fade In
-      gain.gain.setValueAtTime(0.15, secondStart + 5.9);
-      gain.gain.linearRampToValueAtTime(0, secondStart + 6.0); // Fade Out
+      gain.gain.linearRampToValueAtTime(0.15, secondStart + 0.1); 
+      gain.gain.setValueAtTime(0.15, secondStart + 4.9);
+      gain.gain.linearRampToValueAtTime(0, secondStart + 5.0); 
 
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -266,20 +267,25 @@ const App: React.FC = () => {
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
+      
+      // Functional state updates are critical to avoid race conditions and stale closures
       setActiveMajorAlerts(prev => {
         const next = { ...prev };
-        let changed = false;
+        let majorChanged = false;
+        
         Object.keys(next).forEach(key => {
           if (now >= next[key]) {
             delete next[key];
-            changed = true;
+            majorChanged = true;
           }
         });
-        if (changed) {
+
+        if (majorChanged) {
+          // Sync clearing of granular highlights with major alerts
           setGranularHighlights(prevHighs => {
             const nextHighs = { ...prevHighs };
             Object.keys(prev).forEach(key => {
-               if (now >= prev[key]) delete nextHighs[key];
+              if (now >= prev[key]) delete nextHighs[key];
             });
             return nextHighs;
           });
