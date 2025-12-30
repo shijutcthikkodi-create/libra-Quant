@@ -1,8 +1,7 @@
 
 import React, { useMemo, useRef } from 'react';
 import SignalCard from '../components/SignalCard';
-// Added Loader2 to the imports from lucide-react
-import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon, ShieldAlert, Loader2 } from 'lucide-react';
+import { Bell, List, Clock, Zap, Activity, ExternalLink, TrendingUp, Moon, ShieldAlert, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
 import { WatchlistItem, TradeSignal, User, TradeStatus } from '../types';
 import { GranularHighlights } from '../App';
 
@@ -97,9 +96,9 @@ const Dashboard: React.FC<DashboardProps> = ({
               <Clock size={12} className="mr-1.5 text-blue-500" />
               IST Today: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
             </div>
-            <a href="https://oa.mynt.in/?ref=ZTN348" target="_blank" rel="noopener noreferrer" className="flex items-center px-4 py-2 bg-gradient-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 rounded-lg transition-all text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-900/20">
-                <TrendingUp size={16} className="mr-2" /> Open Demat
-            </a>
+            <div className="flex items-center px-4 py-2 bg-slate-900/50 border border-emerald-500/20 text-emerald-500 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest">
+                <ShieldCheck size={14} className="mr-2" /> Verified Partner
+            </div>
         </div>
       </div>
 
@@ -167,6 +166,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                         <List size={16} className="text-blue-400" />
                         <h3 className="font-bold text-white text-sm uppercase tracking-widest">Watch List</h3>
                     </div>
+                    {watchlist.length > 0 && (
+                      <div className="flex items-center space-x-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <span className="text-[9px] font-black text-emerald-500 uppercase">Live Feed</span>
+                      </div>
+                    )}
                 </div>
                 <div className="divide-y divide-slate-800">
                     {watchlist.length > 0 ? watchlist.map((item, idx) => {

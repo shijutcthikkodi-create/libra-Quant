@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff, ExternalLink, TrendingUp, ShieldCheck } from 'lucide-react';
+import { Menu, X, BarChart2, Radio, ShieldAlert, LogOut, FileText, User as UserIcon, Scale, Clock, CheckCircle, AlertCircle, EyeOff, ExternalLink, TrendingUp, ShieldCheck, ArrowRight } from 'lucide-react';
 import { User } from '../types';
 import { SEBI_DISCLAIMER, FOOTER_TEXT, BRANDING_TEXT } from '../constants';
 
@@ -174,7 +174,25 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout, currentPage, 
           <NavItem page="booked" icon={CheckCircle} label="Booked Trades" />
           <NavItem page="stats" icon={BarChart2} label="P&L Analytics" />
           <NavItem page="rules" icon={ShieldAlert} label="Rules & Disclaimer" />
-          {user?.isAdmin && <NavItem page="admin" icon={FileText} label="Admin Panel" />}
+          
+          {/* Admin Panel and Demat Option Area */}
+          <div className="mt-4 pt-4 border-t border-slate-800/50 space-y-2">
+            {user?.isAdmin && <NavItem page="admin" icon={FileText} label="Admin Panel" />}
+            
+            <a
+              href="https://oa.mynt.in/?ref=ZTN348"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center w-full px-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white shadow-lg shadow-blue-900/40 hover:scale-[1.02] transition-all group"
+            >
+              <TrendingUp size={18} className="mr-3 text-white group-hover:animate-bounce" />
+              <div className="flex flex-col">
+                <span className="font-black text-[11px] uppercase tracking-widest leading-none mb-1">Open Demat</span>
+                <span className="text-[8px] font-bold text-blue-100/70 uppercase leading-none">Institutional Access</span>
+              </div>
+              <ArrowRight size={14} className="ml-auto text-white/50 group-hover:text-white transition-colors" />
+            </a>
+          </div>
         </nav>
 
         <div className="p-4 border-t border-slate-800">
