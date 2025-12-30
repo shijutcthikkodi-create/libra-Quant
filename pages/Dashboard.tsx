@@ -103,7 +103,28 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* LAST GIVEN TRADE BANNER */}
+      {/* HEADER SECTION */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-white mb-1 flex items-center">
+            <Activity size={24} className="mr-2 text-emerald-500" />
+            Live Trading Floor
+          </h2>
+          <p className="text-slate-400 text-sm font-mono tracking-tighter italic">Institutional Terminal Active</p>
+        </div>
+        
+        <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
+            <div className="flex items-center px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-[10px] font-bold text-slate-500">
+              <Clock size={12} className="mr-1.5 text-blue-500" />
+              IST Today: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+            </div>
+            <div className="flex items-center px-4 py-2 bg-slate-900/50 border border-emerald-500/20 text-emerald-500 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest">
+                <ShieldCheck size={14} className="mr-2" /> Verified Partner
+            </div>
+        </div>
+      </div>
+
+      {/* LAST GIVEN TRADE BANNER - PLACED JUST ABOVE BTST SECTION */}
       {lastGivenTrade && (
         <div 
           onClick={() => scrollToSignal(lastGivenTrade.id)}
@@ -144,26 +165,6 @@ const Dashboard: React.FC<DashboardProps> = ({
           <div className="absolute bottom-0 left-0 h-[2px] bg-blue-500 w-full opacity-30 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-700"></div>
         </div>
       )}
-
-      <div className="flex flex-col md:flex-row md:items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white mb-1 flex items-center">
-            <Activity size={24} className="mr-2 text-emerald-500" />
-            Live Trading Floor
-          </h2>
-          <p className="text-slate-400 text-sm font-mono tracking-tighter italic">Institutional Terminal Active</p>
-        </div>
-        
-        <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
-            <div className="flex items-center px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-[10px] font-bold text-slate-500">
-              <Clock size={12} className="mr-1.5 text-blue-500" />
-              IST Today: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
-            </div>
-            <div className="flex items-center px-4 py-2 bg-slate-900/50 border border-emerald-500/20 text-emerald-500 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest">
-                <ShieldCheck size={14} className="mr-2" /> Verified Partner
-            </div>
-        </div>
-      </div>
 
       {activeBTSTs.length > 0 && (
         <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
