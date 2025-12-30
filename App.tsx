@@ -14,19 +14,19 @@ import { Radio, CheckCircle, BarChart2, ShieldAlert, Volume2, VolumeX, RefreshCw
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000; 
 const SESSION_KEY = 'libra_user_session';
 const POLL_INTERVAL = 8000; 
-const MAJOR_ALERT_DURATION = 15000; // STRICT 15s Limit
+const MAJOR_ALERT_DURATION = 15000; // STRICT 15s Alert window
 
 export type GranularHighlights = Record<string, Set<string>>;
 
-// These keys trigger the 15s major pulse/beep (Broadcasting/Update events)
+// These keys trigger the 15s beep and card pulse (Broadcasting/Update events)
 const ALERT_TRIGGER_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
-  'stopLoss', 'targets', 'status', 'targetsHit', 'isBTST', 'trailingSL'
+  'stopLoss', 'targets', 'status', 'targetsHit', 'isBTST', 'trailingSL', 'cmp', 'comment'
 ];
 
-// All keys that can cause a subtle glow or blink
+// All keys that can cause a box to blink
 const ALL_SIGNAL_KEYS: Array<keyof TradeSignal> = [
-  ...ALERT_TRIGGER_KEYS, 'pnlPoints', 'pnlRupees', 'comment', 'quantity', 'cmp'
+  ...ALERT_TRIGGER_KEYS, 'pnlPoints', 'pnlRupees', 'quantity'
 ];
 
 const App: React.FC = () => {
@@ -146,7 +146,7 @@ const App: React.FC = () => {
     try {
       const data = await fetchSheetData();
       if (data) {
-        let majorChange = false;
+        let anyChangeTriggeredAudio = false;
         let isCriticalAlert = false;
         let isBTSTUpdate = false;
         let targetSid: string | null = null;
@@ -161,30 +161,29 @@ const App: React.FC = () => {
           const sid = s.id;
           const old = prevSignalsRef.current.find(o => o.id === sid);
           const diff = new Set<string>();
-          let hasAlertKeyChanged = false;
+          let majorUpdateFound = false;
 
           if (!old) {
             if (!isInitial && prevSignalsRef.current.length > 0) {
               ALL_SIGNAL_KEYS.forEach(k => diff.add(k));
-              hasAlertKeyChanged = majorChange = true;
+              majorUpdateFound = anyChangeTriggeredAudio = true;
             }
           } else {
-            // Check for subtle field highlights (always happens)
+            // Check for specific field highlights
             ALL_SIGNAL_KEYS.forEach(k => {
               if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
                 diff.add(k);
-              }
-            });
-            // Check for Major Alert triggers (bypasses generic price ticks for audio/redirect)
-            ALERT_TRIGGER_KEYS.forEach(k => {
-              if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
-                hasAlertKeyChanged = majorChange = true;
-                if (k === 'status' && s.status === TradeStatus.STOPPED) isCriticalAlert = true;
+                // Beep and focus for any key change in ALERT_TRIGGER_KEYS (includes CMP)
+                if (ALERT_TRIGGER_KEYS.includes(k)) {
+                   majorUpdateFound = anyChangeTriggeredAudio = true;
+                   if (k === 'status' && s.status === TradeStatus.STOPPED) isCriticalAlert = true;
+                }
               }
             });
           }
 
-          if (hasAlertKeyChanged) {
+          if (majorUpdateFound) {
+            // Restart 15s timer for the signal
             nextMajor[sid] = now + MAJOR_ALERT_DURATION;
             if (s.sheetIndex > topIndex) { topIndex = s.sheetIndex; targetSid = sid; }
             if (s.isBTST && (s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL)) isBTSTUpdate = true;
@@ -192,7 +191,7 @@ const App: React.FC = () => {
           
           if (diff.size > 0) {
             nextHighs[sid] = diff;
-            // Ensure any small field change also keeps the highlight alive for its window
+            // Ensure any field change keeps the blink logic active for 15s
             if (!nextMajor[sid] || nextMajor[sid] < now + MAJOR_ALERT_DURATION) {
               nextMajor[sid] = now + MAJOR_ALERT_DURATION;
             }
@@ -202,12 +201,12 @@ const App: React.FC = () => {
         data.watchlist.forEach(w => {
           const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
           if (old && !isInitial && Number(w.price) !== Number(old.price)) {
-            majorChange = true;
+            anyChangeTriggeredAudio = true;
             nextWatch[w.symbol] = now + MAJOR_ALERT_DURATION;
           }
         });
 
-        if (majorChange && !isInitial) {
+        if (anyChangeTriggeredAudio && !isInitial) {
           playLongBeep(isCriticalAlert, isBTSTUpdate);
           if (targetSid) handleRedirectToCard(targetSid);
         }

@@ -204,7 +204,7 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
       </div>
 
       <div className="grid grid-cols-3 gap-px bg-slate-800 border-y border-slate-800">
-        <div className={`bg-slate-900 p-4 ${highlights?.has('entryPrice') ? 'animate-box-blink' : ''}`}>
+        <div className={`bg-slate-900 p-4 ${highlights?.has('entryPrice') || highlights?.has('quantity') ? 'animate-box-blink' : ''}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1 flex items-center">Entry</p>
             <p className="text-xl font-mono font-bold text-white">₹{signal.entryPrice.toFixed(2)}</p>
             {signal.quantity ? (
@@ -214,12 +214,12 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
             ) : null}
         </div>
         
-        <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : 'bg-slate-900'} ${highlights?.has('stopLoss') ? 'animate-box-blink' : ''}`}>
+        <div className={`p-4 flex flex-col transition-colors duration-500 ${isSLHit ? 'bg-rose-950/20' : 'bg-slate-900'} ${highlights?.has('stopLoss') || highlights?.has('trailingSL') ? 'animate-box-blink' : ''}`}>
             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-1">Stop Loss</p>
             <p className={`text-xl font-mono font-bold mb-3 ${isSLHit ? 'text-rose-500 animate-pulse' : 'text-rose-400'}`}>
               ₹{signal.stopLoss.toFixed(2)}
             </p>
-            <div className={`mt-auto pt-2 border-t border-slate-800/80 ${highlights?.has('trailingSL') ? 'animate-box-blink' : ''}`}>
+            <div className={`mt-auto pt-2 border-t border-slate-800/80`}>
                 {isEditingTrail ? (
                     <div className="flex items-center space-x-1">
                         <input type="number" value={trailValue} onChange={(e) => setTrailValue(e.target.value)} className="w-full bg-slate-950 border border-blue-500/50 rounded text-[10px] px-2 py-1 text-white focus:outline-none font-mono" autoFocus disabled={isSavingTrail} />
