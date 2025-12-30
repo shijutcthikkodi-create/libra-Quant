@@ -61,9 +61,15 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [signals]);
 
+  /**
+   * CRITICAL FIX: The "Last Given Trade" is defined as the absolute last row 
+   * in the Active Signals sheet. Sorting by sheetIndex (desc) ensures 
+   * we get the literal last transmission regardless of timestamp format issues.
+   */
   const lastGivenTrade = useMemo(() => {
     if (!signals || signals.length === 0) return null;
-    return [...signals].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+    // We sort by sheetIndex descending to get the bottom-most row from the sheet
+    return [...signals].sort((a, b) => (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0))[0];
   }, [signals]);
 
   const activeBTSTs = useMemo(() => {
@@ -95,7 +101,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const timeSince = (timestamp: string) => {
-    const seconds = Math.floor((new Date().getTime() - new Date(timestamp).getTime()) / 1000);
+    const tradeDate = new Date(timestamp);
+    if (isNaN(tradeDate.getTime())) return "LIVE";
+    const seconds = Math.floor((new Date().getTime() - tradeDate.getTime()) / 1000);
     if (seconds < 60) return "JUST NOW";
     if (seconds < 3600) return `${Math.floor(seconds / 60)}M AGO`;
     return `${Math.floor(seconds / 3600)}H AGO`;
@@ -124,45 +132,48 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* LAST GIVEN TRADE BANNER - PLACED JUST ABOVE BTST SECTION */}
+      {/* LAST GIVEN TRADE BANNER - REPOSITIONED AND RELIABLE */}
       {lastGivenTrade && (
         <div 
           onClick={() => scrollToSignal(lastGivenTrade.id)}
-          className="relative group cursor-pointer overflow-hidden rounded-2xl border border-blue-500/30 bg-gradient-to-r from-slate-900 via-blue-900/40 to-slate-900 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-700"
+          className="relative group cursor-pointer overflow-hidden rounded-2xl border border-blue-500/40 bg-gradient-to-r from-slate-900 via-blue-900/40 to-slate-900 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-700"
         >
-          <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          <div className="flex items-center p-3 sm:p-4">
-              <div className="flex-shrink-0 mr-4 hidden sm:block">
-                  <div className="w-12 h-12 rounded-xl bg-blue-600/20 flex items-center justify-center text-blue-400 border border-blue-500/30 animate-pulse">
-                      <Send size={24} />
+          <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          <div className="flex items-center p-3 sm:p-5">
+              <div className="flex-shrink-0 mr-5 hidden sm:block">
+                  <div className="w-14 h-14 rounded-2xl bg-blue-600/20 flex items-center justify-center text-blue-400 border border-blue-500/30 animate-pulse">
+                      <Send size={28} />
                   </div>
               </div>
               <div className="flex-grow">
-                  <div className="flex items-center space-x-2 mb-1">
-                      <span className="px-2 py-0.5 rounded bg-amber-500 text-slate-950 text-[9px] font-black uppercase tracking-widest animate-pulse">Last Given Trade</span>
-                      <span className="text-[9px] font-mono font-black text-blue-400 flex items-center">
-                          <Timer size={10} className="mr-1" /> {timeSince(lastGivenTrade.timestamp)}
+                  <div className="flex items-center space-x-3 mb-1.5">
+                      <span className="px-2.5 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-[0.1em] animate-pulse">
+                        Most Recent Broadcast
                       </span>
+                      <div className="flex items-center text-[10px] font-mono font-black text-blue-400">
+                          <Timer size={12} className="mr-1.5" />
+                          <span>{timeSince(lastGivenTrade.timestamp)}</span>
+                      </div>
                   </div>
-                  <div className="flex flex-wrap items-baseline gap-x-3">
-                      <h3 className="text-lg sm:text-xl font-black text-white tracking-tighter uppercase font-mono">
+                  <div className="flex flex-wrap items-baseline gap-x-4">
+                      <h3 className="text-xl sm:text-2xl font-black text-white tracking-tighter uppercase font-mono">
                           {lastGivenTrade.instrument} {lastGivenTrade.symbol} {lastGivenTrade.type}
                       </h3>
-                      <div className="flex items-center text-xs font-bold space-x-2">
-                          <span className={`px-2 py-0.5 rounded ${lastGivenTrade.action === 'BUY' ? 'text-emerald-400 bg-emerald-400/10' : 'text-rose-400 bg-rose-400/10'}`}>
+                      <div className="flex items-center text-sm font-black space-x-3">
+                          <span className={`px-3 py-1 rounded-lg border ${lastGivenTrade.action === 'BUY' ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' : 'text-rose-400 bg-rose-400/10 border-rose-400/20'}`}>
                               {lastGivenTrade.action} @ ₹{lastGivenTrade.entryPrice}
                           </span>
                       </div>
                   </div>
               </div>
               <div className="flex-shrink-0 ml-4">
-                  <div className="p-2 rounded-full bg-slate-800 text-slate-400 group-hover:text-blue-400 group-hover:bg-blue-400/10 transition-all">
-                      <ArrowRight size={20} />
+                  <div className="p-3 rounded-full bg-slate-800 text-slate-400 group-hover:text-blue-400 group-hover:bg-blue-400/10 transition-all border border-transparent group-hover:border-blue-500/20">
+                      <ArrowRight size={24} />
                   </div>
               </div>
           </div>
-          {/* Subtle Progress Scanner Effect */}
-          <div className="absolute bottom-0 left-0 h-[2px] bg-blue-500 w-full opacity-30 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-700"></div>
+          {/* Animated Scanning Bar */}
+          <div className="absolute bottom-0 left-0 h-[3px] bg-blue-500 w-full opacity-40 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-700 ease-out"></div>
         </div>
       )}
 
