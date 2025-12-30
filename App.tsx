@@ -64,7 +64,6 @@ const App: React.FC = () => {
   const activeOscillatorRef = useRef<OscillatorNode | null>(null);
   const activeGainRef = useRef<GainNode | null>(null);
   
-  // Use ReturnType<typeof setTimeout> to avoid NodeJS namespace issues in browser environment
   const alertTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
 
@@ -117,7 +116,6 @@ const App: React.FC = () => {
   const playLongBeep = useCallback((isCritical = false, isBTST = false) => {
     if (!soundEnabled) return;
     
-    // Always clear existing alert before starting a new one to ensure fresh beep
     stopAlertAudio();
 
     try {
@@ -128,12 +126,10 @@ const App: React.FC = () => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       
-      // Frequency selection
       const baseFreq = isBTST ? 980 : (isCritical ? 440 : 880);
       osc.type = (isBTST || isCritical) ? 'square' : 'sine';
       osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
       
-      // Create a pulsing effect (Beep-Beep-Beep) for 15s
       const pulseDuration = 0.8; 
       const totalPulses = Math.ceil(MAJOR_ALERT_DURATION / 1000 / pulseDuration);
       
@@ -175,66 +171,70 @@ const App: React.FC = () => {
         let topIndex = -1;
         
         const now = Date.now();
-        const nextMajor = { ...activeMajorAlerts };
-        const nextWatch = { ...activeWatchlistAlerts };
-        const nextHighs = { ...granularHighlights };
+        const expirationTime = now + MAJOR_ALERT_DURATION;
 
-        data.signals.forEach(s => {
-          const sid = s.id;
-          const old = prevSignalsRef.current.find(o => o.id === sid);
-          const diff = new Set<string>();
-          let majorUpdateFound = false;
+        // Using functional updates to avoid race conditions with existing timers
+        setActiveMajorAlerts(prevMajor => {
+          const nextMajor = { ...prevMajor };
+          setActiveWatchlistAlerts(prevWatch => {
+            const nextWatch = { ...prevWatch };
+            setGranularHighlights(prevHighs => {
+              const nextHighs = { ...prevHighs };
 
-          if (!old) {
-            if (!isInitial && prevSignalsRef.current.length > 0) {
-              ALL_SIGNAL_KEYS.forEach(k => diff.add(k));
-              majorUpdateFound = anyChangeDetected = true;
-            }
-          } else {
-            // Check all keys for granular highlight and major audio trigger
-            ALL_SIGNAL_KEYS.forEach(k => {
-              if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
-                diff.add(k);
-                // Any change in ALERT_TRIGGER_KEYS (includes CMP, instrument, letters, status) triggers the long beep
-                if (ALERT_TRIGGER_KEYS.includes(k)) {
-                   majorUpdateFound = anyChangeDetected = true;
-                   if (k === 'status' && s.status === TradeStatus.STOPPED) isCriticalAlert = true;
+              data.signals.forEach(s => {
+                const sid = s.id;
+                const old = prevSignalsRef.current.find(o => o.id === sid);
+                const diff = new Set<string>();
+                let majorUpdateFound = false;
+
+                if (!old) {
+                  if (!isInitial && prevSignalsRef.current.length > 0) {
+                    ALL_SIGNAL_KEYS.forEach(k => diff.add(k));
+                    majorUpdateFound = anyChangeDetected = true;
+                  }
+                } else {
+                  ALL_SIGNAL_KEYS.forEach(k => {
+                    if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
+                      diff.add(k);
+                      if (ALERT_TRIGGER_KEYS.includes(k)) {
+                         majorUpdateFound = anyChangeDetected = true;
+                         if (k === 'status' && s.status === TradeStatus.STOPPED) isCriticalAlert = true;
+                      }
+                    }
+                  });
                 }
-              }
+
+                if (majorUpdateFound) {
+                  nextMajor[sid] = expirationTime;
+                  if (s.sheetIndex > topIndex) { topIndex = s.sheetIndex; targetSid = sid; }
+                  if (s.isBTST && (s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL)) isBTSTUpdate = true;
+                }
+                
+                if (diff.size > 0) {
+                  nextHighs[sid] = diff;
+                  nextMajor[sid] = expirationTime;
+                }
+              });
+
+              data.watchlist.forEach(w => {
+                const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
+                if (old && !isInitial && Number(w.price) !== Number(old.price)) {
+                  anyChangeDetected = true;
+                  nextWatch[w.symbol] = expirationTime;
+                }
+              });
+
+              return nextHighs;
             });
-          }
-
-          if (majorUpdateFound) {
-            nextMajor[sid] = now + MAJOR_ALERT_DURATION;
-            if (s.sheetIndex > topIndex) { topIndex = s.sheetIndex; targetSid = sid; }
-            if (s.isBTST && (s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL)) isBTSTUpdate = true;
-          }
-          
-          if (diff.size > 0) {
-            nextHighs[sid] = diff;
-            // Always ensure visual blink is active for 15s when field changes
-            nextMajor[sid] = now + MAJOR_ALERT_DURATION;
-          }
+            return nextWatch;
+          });
+          return nextMajor;
         });
 
-        // Watchlist Update Check
-        data.watchlist.forEach(w => {
-          const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
-          if (old && !isInitial && Number(w.price) !== Number(old.price)) {
-            anyChangeDetected = true;
-            nextWatch[w.symbol] = now + MAJOR_ALERT_DURATION;
-          }
-        });
-
-        // TRIGGER LONG BEEP IF ANY CHANGE (PRICE, LETTERS, STATUS, WATCHLIST)
         if (anyChangeDetected && !isInitial) {
           playLongBeep(isCriticalAlert, isBTSTUpdate);
           if (targetSid) handleRedirectToCard(targetSid);
         }
-
-        setActiveMajorAlerts(nextMajor);
-        setActiveWatchlistAlerts(nextWatch);
-        setGranularHighlights(nextHighs);
 
         setLastSyncTime(new Date().toLocaleTimeString('en-IN'));
         prevSignalsRef.current = [...data.signals];
@@ -252,40 +252,53 @@ const App: React.FC = () => {
     } finally {
       isFetchingRef.current = false;
     }
-  }, [playLongBeep, handleRedirectToCard, activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
+  }, [playLongBeep, handleRedirectToCard]);
 
-  // Unified Cleanup Timer - Strict 15s to stop glows
+  // Robust Cleanup Timer - Uses a single interval with functional state updates
+  // This ensures timers strictly end after 15s even if the state is frequently updated.
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
-      let changed = false;
-      const nextMajor = { ...activeMajorAlerts };
-      const nextWatch = { ...activeWatchlistAlerts };
-      const nextHighs = { ...granularHighlights };
-
-      Object.keys(nextMajor).forEach(key => {
-        if (now >= nextMajor[key]) {
-          delete nextMajor[key];
-          delete nextHighs[key];
-          changed = true;
+      
+      setActiveMajorAlerts(prev => {
+        const next = { ...prev };
+        let changed = false;
+        Object.keys(next).forEach(key => {
+          if (now >= next[key]) {
+            delete next[key];
+            changed = true;
+          }
+        });
+        
+        if (changed) {
+          // Sync granular highlights removal with major alert removal
+          setGranularHighlights(prevHighs => {
+            const nextHighs = { ...prevHighs };
+            Object.keys(prev).forEach(key => {
+               if (now >= prev[key]) delete nextHighs[key];
+            });
+            return nextHighs;
+          });
+          return next;
         }
+        return prev;
       });
 
-      Object.keys(nextWatch).forEach(key => {
-        if (now >= nextWatch[key]) {
-          delete nextWatch[key];
-          changed = true;
-        }
+      setActiveWatchlistAlerts(prev => {
+        const next = { ...prev };
+        let changed = false;
+        Object.keys(next).forEach(key => {
+          if (now >= next[key]) {
+            delete next[key];
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
       });
 
-      if (changed) {
-        setActiveMajorAlerts(nextMajor);
-        setActiveWatchlistAlerts(nextWatch);
-        setGranularHighlights(nextHighs);
-      }
     }, 1000);
     return () => clearInterval(timer);
-  }, [activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
+  }, []);
 
   useEffect(() => {
     sync(true);
