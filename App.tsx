@@ -91,13 +91,12 @@ const App: React.FC = () => {
       const el = document.getElementById(`signal-${id}`);
       const container = document.getElementById('app-main-container');
       if (el && container) {
-        const offset = 80; // Account for mobile header
+        const offset = 80; 
         const elementPosition = el.getBoundingClientRect().top;
         const offsetPosition = elementPosition + container.scrollTop - offset;
         container.scrollTo({ top: offsetPosition, behavior: 'smooth' });
       }
     };
-    // Give time for page render
     setTimeout(scrollTask, 350);
   }, []);
 
@@ -136,16 +135,21 @@ const App: React.FC = () => {
       osc.type = (isBTST || isCritical) ? 'square' : 'sine';
       osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
       
-      const pulseDuration = 0.8; 
-      const totalPulses = Math.ceil(MAJOR_ALERT_DURATION / 1000 / pulseDuration);
+      // Pattern: Two Long Beeps (6s Beep -> 2s Silence -> 6s Beep)
+      const now = ctx.currentTime;
       
-      for (let i = 0; i < totalPulses; i++) {
-        const startTime = ctx.currentTime + (i * pulseDuration);
-        gain.gain.setValueAtTime(0, startTime);
-        gain.gain.linearRampToValueAtTime(0.15, startTime + 0.1);
-        gain.gain.linearRampToValueAtTime(0.15, startTime + 0.5);
-        gain.gain.linearRampToValueAtTime(0, startTime + 0.7);
-      }
+      // First Beep: 0s to 6s
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.15, now + 0.1); // Fade In
+      gain.gain.setValueAtTime(0.15, now + 5.9);
+      gain.gain.linearRampToValueAtTime(0, now + 6.0); // Fade Out
+      
+      // Second Beep: 8s to 14s
+      const secondStart = now + 8.0;
+      gain.gain.setValueAtTime(0, secondStart);
+      gain.gain.linearRampToValueAtTime(0.15, secondStart + 0.1); // Fade In
+      gain.gain.setValueAtTime(0.15, secondStart + 5.9);
+      gain.gain.linearRampToValueAtTime(0, secondStart + 6.0); // Fade Out
 
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -304,7 +308,6 @@ const App: React.FC = () => {
     sync(true);
     const poll = setInterval(() => sync(false), POLL_INTERVAL);
     
-    // Immediate sync when app comes to foreground (prevents stale data on mobile)
     const handleVisibility = () => { if (!document.hidden) sync(false); };
     document.addEventListener('visibilitychange', handleVisibility);
     
@@ -331,7 +334,6 @@ const App: React.FC = () => {
   return (
     <Layout user={user} onLogout={() => { localStorage.removeItem(SESSION_KEY); setUser(null); }} currentPage={page} onNavigate={setPage}>
       
-      {/* Mobile Audio Unlocker - Mandatory for iOS Safari Audio Context */}
       {user && !audioInitialized && (
         <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
           <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white mb-6 animate-pulse shadow-[0_0_40px_rgba(37,99,235,0.4)]">
