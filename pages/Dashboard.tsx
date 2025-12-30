@@ -30,15 +30,10 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (!dateStr) return null;
     let d = new Date(dateStr);
     if (!isNaN(d.getTime())) return d;
-    
-    // Handle DD-MM-YYYY or DD/MM/YYYY
     const parts = dateStr.split(/[-/]/);
     if (parts.length === 3) {
-      if (parts[2].length === 4) { // DD-MM-YYYY
-        d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-      } else if (parts[0].length === 4) { // YYYY-MM-DD
-        d = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
-      }
+      if (parts[2].length === 4) d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+      else if (parts[0].length === 4) d = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
     }
     return isNaN(d.getTime()) ? null : d;
   };
@@ -47,55 +42,35 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (!date || isNaN(date.getTime())) return false;
     const now = new Date();
     const fmt = (d: Date) => new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-    
     const todayStr = fmt(now);
     const targetStr = fmt(date);
-    
     if (todayStr === targetStr) return true;
-    
     const yesterday = new Date(now);
     yesterday.setDate(now.getDate() - 1);
-    const yesterdayStr = fmt(yesterday);
-    
-    return targetStr === yesterdayStr;
+    return targetStr === fmt(yesterday);
   };
 
-  /**
-   * REFINED LATEST LOGIC: 
-   * The "Last Given Trade" is strictly the bottom-most row in the sheet.
-   */
   const lastGivenTrade = useMemo(() => {
     if (!signals || signals.length === 0) return null;
-    // Always pick the one with the highest sheetIndex (literal last row)
     return [...signals].sort((a, b) => (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0))[0];
   }, [signals]);
 
   const liveSignals = useMemo(() => {
     const now = new Date();
-
     return (signals || []).filter(signal => {
       const signalDate = parseFlexibleDate(signal.timestamp);
-      if (!signalDate) return false;
-      
-      const isRecent = isTodayOrYesterdayIST(signalDate);
-      if (!isRecent) return false;
-
+      if (!signalDate || !isTodayOrYesterdayIST(signalDate)) return false;
       const isLive = signal.status === TradeStatus.ACTIVE || signal.status === TradeStatus.PARTIAL;
       if (isLive) return true;
-
-      const closeTimeStr = signal.lastTradedTimestamp || signal.timestamp;
-      const closeDateObj = parseFlexibleDate(closeTimeStr);
-      return closeDateObj && (now.getTime() - closeDateObj.getTime()) < GRACE_PERIOD_MS;
+      const closeTime = parseFlexibleDate(signal.lastTradedTimestamp || signal.timestamp);
+      return closeTime && (now.getTime() - closeTime.getTime()) < GRACE_PERIOD_MS;
     });
   }, [signals]);
 
   const sortedSignals = useMemo(() => {
     return [...liveSignals].sort((a, b) => {
-      const dateA = parseFlexibleDate(a.timestamp)?.getTime() || 0;
-      const dateB = parseFlexibleDate(b.timestamp)?.getTime() || 0;
-      const activityA = Math.max(dateA, parseFlexibleDate(a.lastTradedTimestamp)?.getTime() || 0);
-      const activityB = Math.max(dateB, parseFlexibleDate(b.lastTradedTimestamp)?.getTime() || 0);
-      
+      const activityA = Math.max(parseFlexibleDate(a.timestamp)?.getTime() || 0, parseFlexibleDate(a.lastTradedTimestamp)?.getTime() || 0);
+      const activityB = Math.max(parseFlexibleDate(b.timestamp)?.getTime() || 0, parseFlexibleDate(b.lastTradedTimestamp)?.getTime() || 0);
       if (activityA !== activityB) return activityB - activityA;
       return (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0);
     });
@@ -103,11 +78,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const scrollToSignal = (id: string) => {
       const el = document.getElementById(`signal-${id}`);
-      if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          el.classList.add('animate-card-pulse');
-          setTimeout(() => el.classList.remove('animate-card-pulse'), 3000);
-      }
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const timeSince = (timestamp: string) => {
@@ -121,7 +92,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row md:items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1 flex items-center">
@@ -130,7 +100,6 @@ const Dashboard: React.FC<DashboardProps> = ({
           </h2>
           <p className="text-slate-400 text-sm font-mono tracking-tighter italic">Institutional Terminal Active</p>
         </div>
-        
         <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
             <div className="flex items-center px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-[10px] font-bold text-slate-500">
               <Clock size={12} className="mr-1.5 text-blue-500" />
@@ -142,22 +111,20 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* LAST GIVEN TRADE BANNER - ALWAYS LATEST ROW FROM SHEET */}
       {lastGivenTrade && (
         <div 
           onClick={() => scrollToSignal(lastGivenTrade.id)}
-          className="relative group cursor-pointer overflow-hidden rounded-2xl border border-blue-500/40 bg-gradient-to-r from-slate-900 via-blue-900/40 to-slate-900 shadow-2xl animate-in fade-in slide-in-from-top-4 duration-700"
+          className={`relative group cursor-pointer overflow-hidden rounded-2xl border bg-gradient-to-r from-slate-900 via-blue-900/40 to-slate-900 shadow-2xl transition-all duration-700 ${activeMajorAlerts[lastGivenTrade.id] ? 'border-blue-500 scale-[1.01]' : 'border-slate-800'}`}
         >
-          <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
           <div className="flex items-center p-3 sm:p-5">
               <div className="flex-shrink-0 mr-5 hidden sm:block">
-                  <div className="w-14 h-14 rounded-2xl bg-blue-600/20 flex items-center justify-center text-blue-400 border border-blue-500/30 animate-pulse">
+                  <div className="w-14 h-14 rounded-2xl bg-blue-600/20 flex items-center justify-center text-blue-400 border border-blue-500/30">
                       <Send size={28} />
                   </div>
               </div>
               <div className="flex-grow">
                   <div className="flex items-center space-x-3 mb-1.5">
-                      <span className="px-2.5 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-[0.1em] animate-pulse">
+                      <span className="px-2.5 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-[0.1em]">
                         Last Signal Broadcast
                       </span>
                       <div className="flex items-center text-[10px] font-mono font-black text-blue-400">
@@ -182,7 +149,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
               </div>
           </div>
-          <div className="absolute bottom-0 left-0 h-[3px] bg-blue-500 w-full opacity-40 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-700 ease-out"></div>
+          {activeMajorAlerts[lastGivenTrade.id] && (
+            <div className="absolute bottom-0 left-0 h-[3px] bg-blue-500 w-full animate-in slide-in-from-left duration-1000"></div>
+          )}
         </div>
       )}
 
