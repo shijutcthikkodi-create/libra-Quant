@@ -24,7 +24,6 @@ const SIGNAL_KEYS: Array<keyof TradeSignal> = [
   'quantity', 'cmp', 'isBTST'
 ];
 
-// Keys that trigger the 15s Blink + Beep
 const MAJOR_ALERT_KEYS: Array<keyof TradeSignal> = [
   'status', 'targetsHit', 'stopLoss', 'entryPrice', 'isBTST', 'action', 'instrument'
 ];
@@ -54,7 +53,6 @@ const App: React.FC = () => {
   const [lastSyncTime, setLastSyncTime] = useState<string>('--:--:--');
   const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('libra_sound_enabled') === 'true');
   
-  // Track which items are currently in a "Major Alert" state (ID/Symbol -> ExpiryTimestamp)
   const [activeMajorAlerts, setActiveMajorAlerts] = useState<Record<string, number>>({});
   const [activeWatchlistAlerts, setActiveWatchlistAlerts] = useState<Record<string, number>>({});
   const [granularHighlights, setGranularHighlights] = useState<GranularHighlights>({});
@@ -64,24 +62,45 @@ const App: React.FC = () => {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const beepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isFetchingRef = useRef(false);
+  const isAlertingRef = useRef(false);
+
+  // Resume Audio on ANY user interaction
+  useEffect(() => {
+    const resume = () => {
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+    };
+    window.addEventListener('click', resume);
+    window.addEventListener('touchstart', resume);
+    return () => {
+      window.removeEventListener('click', resume);
+      window.removeEventListener('touchstart', resume);
+    };
+  }, []);
 
   const handleRedirectToCard = useCallback((id: string) => {
+    // If not on dashboard, switch first
     setPage('dashboard');
+    
+    // Give time for layout to render
     setTimeout(() => {
       const el = document.getElementById(`signal-${id}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.classList.add('ring-4', 'ring-blue-500', 'ring-opacity-50');
-        setTimeout(() => el.classList.remove('ring-4', 'ring-blue-500', 'ring-opacity-50'), 3000);
+        el.classList.add('animate-card-pulse', 'focus-indicator');
+        setTimeout(() => {
+          el.classList.remove('focus-indicator');
+        }, 3000);
       }
-    }, 250);
+    }, 500);
   }, []);
 
   const playAlertSequence = useCallback((isCritical = false, isBTST = false, isWatchlist = false) => {
-    if (!soundEnabled) return;
+    if (!soundEnabled || isAlertingRef.current) return;
     
-    if (beepIntervalRef.current) clearInterval(beepIntervalRef.current);
-
+    isAlertingRef.current = true;
+    
     const playBeep = () => {
       try {
         if (!audioCtxRef.current) {
@@ -93,50 +112,56 @@ const App: React.FC = () => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         
-        // Watchlist gets a cleaner "sonar" beep
-        const frequency = isBTST ? 1200 : (isCritical ? 380 : (isWatchlist ? 1000 : 880));
+        // High visibility Institutional Tones
+        const frequency = isBTST ? 1400 : (isCritical ? 420 : (isWatchlist ? 1100 : 920));
         osc.type = (isBTST || isCritical) ? 'square' : 'sine';
         
         osc.frequency.setValueAtTime(frequency, ctx.currentTime);
         gain.gain.setValueAtTime(0, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.1); 
-        gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.6); 
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.0);
+        gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.1); 
+        gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.5); 
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.9);
         
         osc.connect(gain);
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + 1.0);
 
-        if (isBTST || (isWatchlist && Math.random() > 0.5)) {
+        // Echo for urgency
+        if (isBTST || isCritical) {
             setTimeout(() => {
                 if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') return;
                 const osc2 = audioCtxRef.current.createOscillator();
                 const gain2 = audioCtxRef.current.createGain();
                 osc2.type = 'square';
-                osc2.frequency.setValueAtTime(frequency + 200, audioCtxRef.current.currentTime);
+                osc2.frequency.setValueAtTime(frequency * 1.5, audioCtxRef.current.currentTime);
                 gain2.gain.setValueAtTime(0, audioCtxRef.current.currentTime);
-                gain2.gain.linearRampToValueAtTime(0.12, audioCtxRef.current.currentTime + 0.1);
-                gain2.gain.linearRampToValueAtTime(0.12, audioCtxRef.current.currentTime + 0.5);
-                gain2.gain.exponentialRampToValueAtTime(0.0001, audioCtxRef.current.currentTime + 0.8);
+                gain2.gain.linearRampToValueAtTime(0.15, audioCtxRef.current.currentTime + 0.05);
+                gain2.gain.exponentialRampToValueAtTime(0.0001, audioCtxRef.current.currentTime + 0.4);
                 osc2.connect(gain2);
                 gain2.connect(audioCtxRef.current.destination);
                 osc2.start();
-                osc2.stop(audioCtxRef.current.currentTime + 0.8);
-            }, 350);
+                osc2.stop(audioCtxRef.current.currentTime + 0.4);
+            }, 200);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error("Audio error", e);
+      }
     };
 
+    // Initial Beep
     playBeep();
-    const interval = setInterval(playBeep, isBTST ? 1500 : 2500);
+    
+    // Interval for 15 seconds
+    const interval = setInterval(playBeep, isBTST ? 1200 : 2200);
     beepIntervalRef.current = interval;
     
-    // HARD STOP ALL BEEPING AT 15s
+    // STRICT 15s KILL SWITCH
     setTimeout(() => {
       if (beepIntervalRef.current === interval) {
         clearInterval(beepIntervalRef.current);
         beepIntervalRef.current = null;
+        isAlertingRef.current = false;
       }
     }, MAJOR_ALERT_DURATION);
   }, [soundEnabled]);
@@ -160,7 +185,7 @@ const App: React.FC = () => {
         const newWatchlistAlerts: Record<string, number> = { ...activeWatchlistAlerts };
         const newHighlights: GranularHighlights = { ...granularHighlights };
 
-        // 1. PROCESS SIGNALS
+        // 1. SIGNAL SYNC
         data.signals.forEach(s => {
           const sid = s.id;
           const old = prevSignalsRef.current.find(o => o.id === sid);
@@ -168,6 +193,7 @@ const App: React.FC = () => {
           const isActiveTrade = s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL;
 
           if (!old) {
+            // New Trade Detected
             if (!isInitial && prevSignalsRef.current.length > 0) {
               SIGNAL_KEYS.forEach(k => diff.add(k));
               scrollTargetId = sid;
@@ -180,6 +206,7 @@ const App: React.FC = () => {
             SIGNAL_KEYS.forEach(k => {
               if (JSON.stringify(s[k]) !== JSON.stringify(old[k])) {
                 diff.add(k);
+                // Major Property Changed
                 if (MAJOR_ALERT_KEYS.includes(k) && isActiveTrade) {
                   signalHasMajorChange = true;
                   hasGlobalMajorChange = true;
@@ -201,18 +228,23 @@ const App: React.FC = () => {
           if (diff.size > 0) newHighlights[sid] = diff;
         });
 
-        // 2. PROCESS WATCHLIST
+        // 2. WATCHLIST SYNC (Strict Numeric Comparison)
         data.watchlist.forEach(w => {
           const old = prevWatchlistRef.current.find(o => o.symbol === w.symbol);
           if (old && !isInitial) {
-            if (w.price !== old.price || w.change !== old.change) {
+            const p1 = Number(w.price);
+            const p2 = Number(old.price);
+            const c1 = Number(w.change);
+            const c2 = Number(old.change);
+            
+            if (p1 !== p2 || c1 !== c2) {
               isWatchlistChange = true;
               newWatchlistAlerts[w.symbol] = now + MAJOR_ALERT_DURATION;
             }
           }
         });
 
-        // 3. EXECUTE ALERTS
+        // 3. TRIGGER ALERTS
         if (hasGlobalMajorChange || isWatchlistChange) {
           playAlertSequence(isCriticalAlert, isBTSTUpdate, isWatchlistChange);
           if (scrollTargetId && !isInitial) handleRedirectToCard(scrollTargetId);
@@ -235,13 +267,14 @@ const App: React.FC = () => {
         setConnectionStatus('connected');
       }
     } catch (err: any) {
+      console.error("Sync error", err);
       setConnectionStatus('error');
     } finally {
       isFetchingRef.current = false;
     }
   }, [playAlertSequence, handleRedirectToCard, activeMajorAlerts, activeWatchlistAlerts, granularHighlights]);
 
-  // Alert Cleanup Clock
+  // Alert State Expiry Engine
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now();
@@ -293,6 +326,7 @@ const App: React.FC = () => {
     setSoundEnabled(next);
     localStorage.setItem('libra_sound_enabled', String(next));
     if (next) {
+      // Create context immediately on button click
       if (!audioCtxRef.current) {
         audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
