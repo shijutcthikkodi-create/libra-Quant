@@ -135,22 +135,25 @@ const App: React.FC = () => {
       osc.type = (isBTST || isCritical) ? 'square' : 'sine';
       osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
       
-      // Pattern: Two Long Beeps of 5 seconds each
-      // Total timeline: 0s-5s (Beep 1) -> 5s-7.5s (Silence) -> 7.5s-12.5s (Beep 2) -> 12.5s-15s (Silence)
+      // Pattern: Two Long Beeps 
+      // Beep 1 : 0.0s to 2.0s
+      // Silence: 2.0s to 5.0s
+      // Beep 2 : 5.0s to 7.0s
+      // Final silence: 7.0s to 15.0s
       const now = ctx.currentTime;
       
-      // First Beep: 0s to 5.0s
+      // First Beep: 0s to 2.0s
       gain.gain.setValueAtTime(0, now);
       gain.gain.linearRampToValueAtTime(0.15, now + 0.1); 
-      gain.gain.setValueAtTime(0.15, now + 4.9);
-      gain.gain.linearRampToValueAtTime(0, now + 5.0); 
+      gain.gain.setValueAtTime(0.15, now + 1.9);
+      gain.gain.linearRampToValueAtTime(0, now + 2.0); 
       
-      // Second Beep: 7.5s to 12.5s
-      const secondStart = now + 7.5;
+      // Second Beep: 5.0s to 7.0s
+      const secondStart = now + 5.0;
       gain.gain.setValueAtTime(0, secondStart);
       gain.gain.linearRampToValueAtTime(0.15, secondStart + 0.1); 
-      gain.gain.setValueAtTime(0.15, secondStart + 4.9);
-      gain.gain.linearRampToValueAtTime(0, secondStart + 5.0); 
+      gain.gain.setValueAtTime(0.15, secondStart + 1.9);
+      gain.gain.linearRampToValueAtTime(0, secondStart + 2.0); 
 
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -268,7 +271,6 @@ const App: React.FC = () => {
     const timer = setInterval(() => {
       const now = Date.now();
       
-      // Functional state updates are critical to avoid race conditions and stale closures
       setActiveMajorAlerts(prev => {
         const next = { ...prev };
         let majorChanged = false;
@@ -281,7 +283,6 @@ const App: React.FC = () => {
         });
 
         if (majorChanged) {
-          // Sync clearing of granular highlights with major alerts
           setGranularHighlights(prevHighs => {
             const nextHighs = { ...prevHighs };
             Object.keys(prev).forEach(key => {
