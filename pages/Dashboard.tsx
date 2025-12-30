@@ -60,6 +60,16 @@ const Dashboard: React.FC<DashboardProps> = ({
     return targetStr === yesterdayStr;
   };
 
+  /**
+   * REFINED LATEST LOGIC: 
+   * The "Last Given Trade" is strictly the bottom-most row in the sheet.
+   */
+  const lastGivenTrade = useMemo(() => {
+    if (!signals || signals.length === 0) return null;
+    // Always pick the one with the highest sheetIndex (literal last row)
+    return [...signals].sort((a, b) => (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0))[0];
+  }, [signals]);
+
   const liveSignals = useMemo(() => {
     const now = new Date();
 
@@ -79,35 +89,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [signals]);
 
-  /**
-   * REFINED LATEST LOGIC: 
-   * The "Last Given Trade" must be absolute.
-   * We sort by:
-   * 1. Timestamp (descending) - True creation time
-   * 2. SheetIndex (descending) - Physical row order fallback
-   */
-  const lastGivenTrade = useMemo(() => {
-    if (!signals || signals.length === 0) return null;
-    
-    return [...signals].sort((a, b) => {
-      const dateA = parseFlexibleDate(a.timestamp)?.getTime() || 0;
-      const dateB = parseFlexibleDate(b.timestamp)?.getTime() || 0;
-      
-      if (dateB !== dateA) return dateB - dateA;
-      return (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0);
-    })[0];
-  }, [signals]);
-
-  const activeBTSTs = useMemo(() => {
-    return liveSignals.filter(s => s.isBTST && (s.status === TradeStatus.ACTIVE || s.status === TradeStatus.PARTIAL));
-  }, [liveSignals]);
-
-  const otherLiveSignals = useMemo(() => {
-    return liveSignals.filter(s => !s.isBTST || (s.status !== TradeStatus.ACTIVE && s.status !== TradeStatus.PARTIAL));
-  }, [liveSignals]);
-
   const sortedSignals = useMemo(() => {
-    return [...otherLiveSignals].sort((a, b) => {
+    return [...liveSignals].sort((a, b) => {
       const dateA = parseFlexibleDate(a.timestamp)?.getTime() || 0;
       const dateB = parseFlexibleDate(b.timestamp)?.getTime() || 0;
       const activityA = Math.max(dateA, parseFlexibleDate(a.lastTradedTimestamp)?.getTime() || 0);
@@ -116,7 +99,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       if (activityA !== activityB) return activityB - activityA;
       return (b.sheetIndex ?? 0) - (a.sheetIndex ?? 0);
     });
-  }, [otherLiveSignals]);
+  }, [liveSignals]);
 
   const scrollToSignal = (id: string) => {
       const el = document.getElementById(`signal-${id}`);
@@ -159,7 +142,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* LAST GIVEN TRADE BANNER - ALWAYS UPDATES TO THE TRUE LATEST */}
+      {/* LAST GIVEN TRADE BANNER - ALWAYS LATEST ROW FROM SHEET */}
       {lastGivenTrade && (
         <div 
           onClick={() => scrollToSignal(lastGivenTrade.id)}
@@ -175,7 +158,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="flex-grow">
                   <div className="flex items-center space-x-3 mb-1.5">
                       <span className="px-2.5 py-0.5 rounded bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-[0.1em] animate-pulse">
-                        Most Recent Broadcast
+                        Last Signal Broadcast
                       </span>
                       <div className="flex items-center text-[10px] font-mono font-black text-blue-400">
                           <Timer size={12} className="mr-1.5" />
@@ -199,36 +182,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
               </div>
           </div>
-          {/* Animated Scanning Bar */}
           <div className="absolute bottom-0 left-0 h-[3px] bg-blue-500 w-full opacity-40 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-700 ease-out"></div>
-        </div>
-      )}
-
-      {activeBTSTs.length > 0 && (
-        <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
-          <div className="flex items-center space-x-3 px-1">
-             <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400 animate-pulse border border-amber-500/30">
-                <Moon size={22} fill="currentColor" />
-             </div>
-             <div>
-               <h3 className="text-sm font-black text-amber-500 uppercase tracking-[0.2em] leading-none mb-1">Active BTST Terminal</h3>
-               <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Priority overnight monitoring enabled</p>
-             </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {activeBTSTs.map(signal => (
-              <div key={signal.id} id={`signal-${signal.id}`}>
-                <SignalCard 
-                    signal={signal} 
-                    user={user} 
-                    highlights={granularHighlights[signal.id]} 
-                    isMajorAlerting={!!activeMajorAlerts[signal.id]}
-                    onSignalUpdate={onSignalUpdate}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="h-px bg-gradient-to-r from-transparent via-slate-800 to-transparent my-6"></div>
         </div>
       )}
 
@@ -238,7 +192,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                  <Zap size={16} className="text-emerald-500" />
                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Market Feed</h3>
               </div>
-              {sortedSignals.length === 0 && activeBTSTs.length === 0 ? (
+              {sortedSignals.length === 0 ? (
                   <div className="text-center py-20 bg-slate-900/50 border border-dashed border-slate-800 rounded-3xl">
                       <Zap size={40} className="mx-auto text-slate-800 mb-4" />
                       <p className="text-slate-500 font-bold uppercase tracking-widest text-sm italic">Scanning terminal Truth...</p>
