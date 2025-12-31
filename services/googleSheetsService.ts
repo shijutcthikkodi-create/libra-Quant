@@ -1,4 +1,3 @@
-
 import { TradeSignal, WatchlistItem, User, TradeStatus, LogEntry, ChatMessage } from '../types';
 
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwvKlkhm4P2wj0t5ePFGEVzCFOhL6k96qC4dc0OAId1NLCUl_sphIo6fupHOX3d6Coz/exec';
@@ -66,6 +65,7 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
   const instrument = String(getVal(s, 'instrument') || '').trim();
   const symbol = String(getVal(s, 'symbol') || '').trim();
   const entryPrice = getNum(s, 'entryPrice');
+  const cmp = getNum(s, 'cmp');
   
   if (!instrument || !symbol || instrument.length < 2 || entryPrice === undefined || entryPrice === 0) return null;
 
@@ -77,9 +77,6 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
     parsedTargets = rawTargets.map(t => parseFloat(t)).filter(n => !isNaN(n));
   }
 
-  // STABLE ID GENERATION: 
-  // We MUST NOT use Date.now() if ID is missing, otherwise every poll treats it as new.
-  // We use row data to create a deterministic hash if ID column is empty.
   const rawId = getVal(s, 'id');
   const id = rawId ? String(rawId).trim() : 
     `sig-${instrument}-${symbol}-${entryPrice}-${getVal(s, 'timestamp') || index}`.replace(/\s+/g, '-');
@@ -94,10 +91,15 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
     targets: parsedTargets,
     targetsHit: getNum(s, 'targetsHit') || 0, 
     trailingSL: getNum(s, 'trailingSL') ?? null,
+    cmp: cmp,
+    quantity: getNum(s, 'quantity') || 0,
+    pnlPoints: getNum(s, 'pnlPoints') || 0,
+    pnlRupees: getNum(s, 'pnlRupees') || 0,
     action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
     status: normalizeStatus(getVal(s, 'status')),
     timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
-    isBTST: isTrue(getVal(s, 'isBTST'))
+    isBTST: isTrue(getVal(s, 'isBTST')),
+    comment: String(getVal(s, 'comment') || '').trim()
   };
 };
 

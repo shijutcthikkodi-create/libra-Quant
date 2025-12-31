@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -18,13 +17,15 @@ const MAJOR_ALERT_DURATION = 15000; // STRICT 15s Alert window
 
 export type GranularHighlights = Record<string, Set<string>>;
 
+// 'cmp' removed from Alert triggers to prevent terminal from beeping on every price movement
+// but it remains in ALL_SIGNAL_KEYS so the 'box-blink' UI highlight still triggers.
 const ALERT_TRIGGER_KEYS: Array<keyof TradeSignal> = [
   'instrument', 'symbol', 'type', 'action', 'entryPrice', 
-  'stopLoss', 'targets', 'status', 'targetsHit', 'isBTST', 'trailingSL', 'cmp', 'comment'
+  'stopLoss', 'targets', 'status', 'targetsHit', 'isBTST', 'trailingSL', 'comment'
 ];
 
 const ALL_SIGNAL_KEYS: Array<keyof TradeSignal> = [
-  ...ALERT_TRIGGER_KEYS, 'pnlPoints', 'pnlRupees', 'quantity'
+  ...ALERT_TRIGGER_KEYS, 'pnlPoints', 'pnlRupees', 'quantity', 'cmp'
 ];
 
 const App: React.FC = () => {
@@ -135,11 +136,6 @@ const App: React.FC = () => {
       osc.type = (isBTST || isCritical) ? 'square' : 'sine';
       osc.frequency.setValueAtTime(baseFreq, ctx.currentTime);
       
-      // Pattern: Two Long Beeps 
-      // Beep 1 : 0.0s to 2.0s
-      // Silence: 2.0s to 5.0s
-      // Beep 2 : 5.0s to 7.0s
-      // Final silence: 7.0s to 15.0s
       const now = ctx.currentTime;
       
       // First Beep: 0s to 2.0s
@@ -225,7 +221,8 @@ const App: React.FC = () => {
                 
                 if (diff.size > 0) {
                   nextHighs[sid] = diff;
-                  nextMajor[sid] = expirationTime;
+                  // If not a major alert, we still want to track it's alive in nextMajor to keep diff visible
+                  if (!nextMajor[sid]) nextMajor[sid] = expirationTime;
                 }
               });
 

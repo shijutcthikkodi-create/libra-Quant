@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Moon, Trash2 } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Target, Cpu, Edit2, Check, X, TrendingUp, TrendingDown, Clock, ShieldAlert, Zap, AlertTriangle, Trophy, Loader2, History, Briefcase, Activity, Moon, Trash2, Coins } from 'lucide-react';
 import { TradeSignal, TradeStatus, OptionType, User } from '../types';
 import { analyzeTradeSignal } from '../services/geminiService';
 
@@ -241,6 +241,22 @@ const SignalCard: React.FC<SignalCardProps> = ({ signal, user, highlights, isMaj
                 )}
             </div>
             <p className={`text-2xl font-mono font-black tracking-tighter ${cmpProfit && isActive ? 'text-emerald-400' : cmpLoss && isActive ? 'text-rose-400' : 'text-white'}`}>₹{signal.cmp != null ? signal.cmp.toFixed(2) : '0.00'}</p>
+            
+            {/* PNL POINTS DISPLAY */}
+            {(signal.pnlPoints !== undefined && signal.pnlPoints !== 0) && (
+              <div className={`mt-2 flex flex-col items-start`}>
+                 <div className={`flex items-center space-x-1 px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 shadow-sm ${signal.pnlPoints > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <TrendingUp size={10} className={signal.pnlPoints < 0 ? 'rotate-180' : ''} />
+                    <span className="text-[10px] font-black uppercase tracking-tight">{signal.pnlPoints > 0 ? '+' : ''}{signal.pnlPoints.toFixed(1)} POINTS</span>
+                 </div>
+                 {signal.pnlRupees !== undefined && signal.pnlRupees !== 0 && (
+                   <div className={`mt-1 flex items-center space-x-1 text-[9px] font-bold ${signal.pnlRupees > 0 ? 'text-emerald-500' : 'text-rose-500'} uppercase tracking-widest`}>
+                      <Coins size={9} />
+                      <span>Net: ₹{signal.pnlRupees.toLocaleString('en-IN')}</span>
+                   </div>
+                 )}
+              </div>
+            )}
         </div>
       </div>
 
