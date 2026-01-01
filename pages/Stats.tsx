@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { TradeSignal, TradeStatus } from '../types';
@@ -16,10 +15,13 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
       new Intl.DateTimeFormat('en-CA', { ...options, timeZone: 'Asia/Kolkata' }).format(d);
     
     const today = fmt(now, { year: 'numeric', month: '2-digit', day: '2-digit' });
-    const monthYear = today.split('-').slice(0, 2).join('-'); 
-    const currentMonthLabel = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(now);
     
-    return { today, monthYear, currentMonthLabel };
+    // Calculate 30 days ago
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(now.getDate() - 30);
+    const thirtyDaysAgoStr = fmt(thirtyDaysAgo, { year: 'numeric', month: '2-digit', day: '2-digit' });
+    
+    return { today, thirtyDaysAgoStr };
   };
 
   const isIndex = (instrument: string) => {
@@ -49,7 +51,7 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
   };
 
   const performance = useMemo(() => {
-    const { today: istToday, monthYear: currentMonthYear, currentMonthLabel } = getISTContext();
+    const { today: istToday, thirtyDaysAgoStr } = getISTContext();
     
     // TODAY'S LEDGER (Active signals closed today)
     const activeClosedToday = (signals || []).filter(s => {
@@ -76,7 +78,7 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
     });
 
     const combinedHistory = Array.from(unifiedMap.values());
-    const monthlyStats = { pnl: 0, indexPnL: 0, stockPnL: 0, overall: [] as number[], intraday: [] as number[], btst: [] as number[] };
+    const rollingStats = { pnl: 0, indexPnL: 0, stockPnL: 0, overall: [] as number[], intraday: [] as number[], btst: [] as number[] };
 
     const chartMap: Record<string, number> = {};
     for (let i = 6; i >= 0; i--) {
@@ -90,12 +92,15 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
       const qty = Number(trade.quantity && trade.quantity > 0 ? trade.quantity : 1);
       const pnl = Number(trade.pnlRupees !== undefined ? trade.pnlRupees : (trade.pnlPoints || 0) * qty);
 
-      if (tradeDateStr.startsWith(currentMonthYear)) {
-        monthlyStats.pnl += pnl;
-        monthlyStats.overall.push(pnl);
-        if (isIndex(trade.instrument)) monthlyStats.indexPnL += pnl; else monthlyStats.stockPnL += pnl;
-        if (trade.isBTST) monthlyStats.btst.push(pnl); else monthlyStats.intraday.push(pnl);
+      // FILTER FOR ROLLING 30 DAYS
+      if (tradeDateStr >= thirtyDaysAgoStr && tradeDateStr <= istToday) {
+        rollingStats.pnl += pnl;
+        rollingStats.overall.push(pnl);
+        if (isIndex(trade.instrument)) rollingStats.indexPnL += pnl; else rollingStats.stockPnL += pnl;
+        if (trade.isBTST) rollingStats.btst.push(pnl); else rollingStats.intraday.push(pnl);
       }
+      
+      // Still populate chart for last 7 days regardless of 30d filter bounds
       if (chartMap[tradeDateStr] !== undefined) chartMap[tradeDateStr] += pnl;
     });
 
@@ -103,14 +108,13 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
 
     return {
       todayPnL, todayCount: activeClosedToday.length,
-      monthlyPnL: monthlyStats.pnl,
-      indexPnL: monthlyStats.indexPnL,
-      stockPnL: monthlyStats.stockPnL,
-      overallWinRate: calculateWinRate(monthlyStats.overall),
-      intradayWinRate: calculateWinRate(monthlyStats.intraday),
-      btstWinRate: calculateWinRate(monthlyStats.btst),
-      totalMonthlyTrades: monthlyStats.overall.length,
-      currentMonthLabel,
+      rollingPnL: rollingStats.pnl,
+      indexPnL: rollingStats.indexPnL,
+      stockPnL: rollingStats.stockPnL,
+      overallWinRate: calculateWinRate(rollingStats.overall),
+      intradayWinRate: calculateWinRate(rollingStats.intraday),
+      btstWinRate: calculateWinRate(rollingStats.btst),
+      totalRollingTrades: rollingStats.overall.length,
       chartData: Object.entries(chartMap).map(([date, pnl]) => ({ date: date.split('-').reverse().slice(0, 2).join('/'), pnl }))
     };
   }, [signals, historySignals]);
@@ -126,28 +130,28 @@ const Stats: React.FC<StatsProps> = ({ signals = [], historySignals = [] }) => {
         </div>
         <div className="flex items-center space-x-2 text-slate-400 text-[10px] bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
            <Filter size={12} className="text-blue-500" />
-           <span className="uppercase font-black tracking-tighter">Cycle: {performance.currentMonthLabel}</span>
+           <span className="uppercase font-black tracking-tighter">Rolling Window: Last 30 Days</span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatItem label="Today's Booked P&L" value={formatCurrency(performance.todayPnL)} isPositive={performance.todayPnL >= 0} icon={Activity} highlight={true} subtext={`Realized Today (${performance.todayCount})`} />
-        <StatItem label="Monthly Surplus (Total)" value={formatCurrency(performance.monthlyPnL)} isPositive={performance.monthlyPnL >= 0} icon={HistoryIcon} subtext={`Sample: ${performance.totalMonthlyTrades} Trades (Hist+Book)`} />
-        <StatItem label="Win Rate (Overall)" value={`${performance.overallWinRate.toFixed(1)}%`} isPositive={performance.overallWinRate >= 65} icon={Award} subtext="Aggregated Monthly Accuracy" />
-        <StatItem label="BTST Reliability" value={`${performance.btstWinRate.toFixed(1)}%`} isPositive={performance.btstWinRate >= 65} icon={Clock} subtext="Overnight Target Accuracy" />
+        <StatItem label="Rolling 30D Surplus" value={formatCurrency(performance.rollingPnL)} isPositive={performance.rollingPnL >= 0} icon={HistoryIcon} subtext={`Sample: ${performance.totalRollingTrades} Trades`} />
+        <StatItem label="30D Win Rate (Avg)" value={`${performance.overallWinRate.toFixed(1)}%`} isPositive={performance.overallWinRate >= 65} icon={Award} subtext="Aggregated Rolling Accuracy" />
+        <StatItem label="BTST Reliability" value={`${performance.btstWinRate.toFixed(1)}%`} isPositive={performance.btstWinRate >= 65} icon={Clock} subtext="30D Overnight Accuracy" />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <StatItem label="Index Monthly P&L" value={formatCurrency(performance.indexPnL)} isPositive={performance.indexPnL >= 0} icon={Layers} subtext="Nifty / BankNifty Segment" />
-        <StatItem label="Stock Monthly P&L" value={formatCurrency(performance.stockPnL)} isPositive={performance.stockPnL >= 0} icon={Briefcase} subtext="Equity Options / Cash" />
-        <StatItem label="Intraday Accuracy" value={`${performance.intradayWinRate.toFixed(1)}%`} isPositive={performance.intradayWinRate >= 65} icon={Zap} subtext="Day-Trading Accuracy" />
+        <StatItem label="Index 30D P&L" value={formatCurrency(performance.indexPnL)} isPositive={performance.indexPnL >= 0} icon={Layers} subtext="Nifty / BankNifty Segment" />
+        <StatItem label="Stock 30D P&L" value={formatCurrency(performance.stockPnL)} isPositive={performance.stockPnL >= 0} icon={Briefcase} subtext="Equity Options / Cash" />
+        <StatItem label="Intraday Accuracy" value={`${performance.intradayWinRate.toFixed(1)}%`} isPositive={performance.intradayWinRate >= 65} icon={Zap} subtext="30D Day-Trading Accuracy" />
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
         <div className="flex items-center justify-between mb-10 relative z-10">
             <div>
-              <h3 className="text-white font-bold flex items-center text-sm uppercase tracking-widest"><BarChart3 size={16} className="mr-3 text-blue-500" />Performance curve (Unified)</h3>
-              <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-tighter">7-Day Combined History + Active Data Feed</p>
+              <h3 className="text-white font-bold flex items-center text-sm uppercase tracking-widest"><BarChart3 size={16} className="mr-3 text-blue-500" />Recent Performance Curve</h3>
+              <p className="text-[10px] text-slate-500 mt-1 uppercase font-bold tracking-tighter">Rolling 7-Day Unified Data Stream</p>
             </div>
         </div>
         <div className="h-64 w-full relative z-10">

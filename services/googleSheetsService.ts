@@ -81,6 +81,26 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
   const id = rawId ? String(rawId).trim() : 
     `sig-${instrument}-${symbol}-${entryPrice}-${getVal(s, 'timestamp') || index}`.replace(/\s+/g, '-');
 
+  // Intelligent timestamp handling for historical vs live data
+  let timestamp = getVal(s, 'timestamp');
+  const rawDate = getVal(s, 'date');
+  
+  if (!timestamp && rawDate) {
+    // If we have a date but no timestamp (likely history), use the date
+    // Normalize DD-MM-YYYY to YYYY-MM-DD for JS parsing
+    const dateStr = String(rawDate);
+    if (dateStr.includes('-')) {
+      const parts = dateStr.split('-');
+      if (parts[2] && parts[2].length === 4) {
+        timestamp = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}T09:15:00.000Z`;
+      } else {
+        timestamp = dateStr;
+      }
+    } else {
+      timestamp = dateStr;
+    }
+  }
+
   return {
     ...s,
     id,
@@ -97,7 +117,7 @@ const parseSignalRow = (s: any, index: number, tabName: string): TradeSignal | n
     pnlRupees: getNum(s, 'pnlRupees') || 0,
     action: (getVal(s, 'action') || 'BUY') as 'BUY' | 'SELL',
     status: normalizeStatus(getVal(s, 'status')),
-    timestamp: getVal(s, 'timestamp') || new Date().toISOString(),
+    timestamp: timestamp || new Date().toISOString(),
     isBTST: isTrue(getVal(s, 'isBTST')),
     comment: String(getVal(s, 'comment') || '').trim()
   };

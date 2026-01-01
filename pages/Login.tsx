@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
-import { Lock, Phone, Scale, Smartphone, ShieldBan, Loader2, KeyRound, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Lock, Phone, Scale, Smartphone, ShieldBan, Loader2, KeyRound, ShieldAlert, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { fetchSheetData, updateSheetData } from '../services/googleSheetsService';
 
 interface LoginProps {
@@ -11,6 +10,7 @@ interface LoginProps {
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
@@ -190,12 +190,19 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     <div className="relative">
                         <KeyRound className="absolute left-3 top-3.5 text-slate-500" size={16} />
                         <input 
-                            type="password" 
+                            type={showPassword ? "text" : "password"} 
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             placeholder="Enter Key"
-                            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3.5 pl-10 pr-4 text-white focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all placeholder:text-slate-700 font-mono"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl py-3.5 pl-10 pr-12 text-white focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500 outline-none transition-all placeholder:text-slate-700 font-mono"
                         />
+                        <button 
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-3 top-3 text-slate-500 hover:text-slate-300 transition-colors p-1"
+                        >
+                            {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                        </button>
                     </div>
                 </div>
 

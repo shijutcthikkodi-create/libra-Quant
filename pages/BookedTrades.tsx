@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import SignalCard from '../components/SignalCard';
 import { History, Moon, Zap, Activity, BarChart3, TrendingUp, Layers, Calendar } from 'lucide-react';
@@ -45,14 +44,16 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     const rawDate = String(trade.date || '').trim();
     if (!rawDate) return '';
 
+    // Handle DD-MM-YYYY
     if (rawDate.includes('-')) {
       const parts = rawDate.split('-');
-      if (parts[0].length === 4) return rawDate;
+      if (parts[0].length === 4) return rawDate; // Already YYYY-MM-DD
       if (parts.length === 3 && parts[2].length === 4) {
         return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
       }
     }
     
+    // Handle DD/MM/YYYY
     if (rawDate.includes('/')) {
       const parts = rawDate.split('/');
       if (parts.length === 3) {
@@ -62,6 +63,13 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
         return `${y}-${m}-${d}`;
       }
     }
+    
+    // Fallback try native parse
+    const native = new Date(rawDate);
+    if (!isNaN(native.getTime())) {
+      return native.toISOString().split('T')[0];
+    }
+
     return '';
   };
 
@@ -70,9 +78,11 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     return indices.includes(instrument.toUpperCase());
   };
 
-  const { groupedSignals, stats, monthlyStats, todayDateLabel } = useMemo(() => {
-    const today = getISTDateString(new Date());
+  const { groupedSignals, stats, monthlyStats, todayDateLabel, currentMonthLabel } = useMemo(() => {
+    const now = new Date();
+    const today = getISTDateString(now);
     const currentMonthPrefix = today.split('-').slice(0, 2).join('-'); // YYYY-MM
+    const currentMonthName = new Intl.DateTimeFormat('en-IN', { month: 'long', timeZone: 'Asia/Kolkata' }).format(now).toUpperCase();
     
     const tradeMap = new Map<string, TradeSignal>();
     
@@ -85,7 +95,7 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
 
     // TODAY'S BOOKED (Closed trades in active signals tab with IST date = today)
     const bookedToday = Array.from(tradeMap.values())
-      .filter(s => getISTDateString(s.lastTradedTimestamp || s.timestamp) === today);
+      .filter(s => normalizeDate(s) === today);
 
     const categories = {
       indexIntra: [] as TradeSignal[],
@@ -114,8 +124,9 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
     const unifiedMonthlyMap = new Map<string, TradeSignal>();
     
     (historySignals || []).forEach(s => {
-      const id = s.id || `hist-${normalizeDate(s)}-${s.symbol}-${s.entryPrice}`;
-      if (normalizeDate(s).startsWith(currentMonthPrefix)) unifiedMonthlyMap.set(id, s);
+      const dStr = normalizeDate(s);
+      const id = s.id || `hist-${dStr}-${s.symbol}-${s.entryPrice}`;
+      if (dStr.startsWith(currentMonthPrefix)) unifiedMonthlyMap.set(id, s);
     });
     
     Array.from(tradeMap.values()).forEach(s => {
@@ -142,7 +153,8 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
       },
       stats: { net: netPnL, count: bookedToday.length },
       monthlyStats: { net: monthlyPnLTotal, count: unifiedMonthlyMap.size },
-      todayDateLabel: today.split('-').reverse().join('/')
+      todayDateLabel: today.split('-').reverse().join('/'),
+      currentMonthLabel: currentMonthName
     };
   }, [signals, historySignals]);
 
@@ -216,11 +228,11 @@ const BookedTrades: React.FC<BookedTradesProps> = ({
            </div>
            
            <div className="px-6 py-4 bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl flex flex-col items-center justify-center min-w-[180px] border-l-4 border-l-emerald-500">
-              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Monthly Surplus</p>
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">{currentMonthLabel} SURPLUS</p>
               <p className={`text-2xl font-mono font-black ${monthlyStats.net >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                 ₹{monthlyStats.net.toLocaleString('en-IN')}
               </p>
-              <p className="text-[8px] text-slate-600 font-bold uppercase mt-1">{monthlyStats.count} Total (Hist + Book)</p>
+              <p className="text-[8px] text-slate-600 font-bold uppercase mt-1">MTD: {monthlyStats.count} Total Trades</p>
            </div>
         </div>
       </div>

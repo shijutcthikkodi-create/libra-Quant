@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { WatchlistItem, TradeSignal, OptionType, TradeStatus, User, LogEntry } from '../types';
 import { 
@@ -6,7 +5,8 @@ import {
   History, Zap, Loader2, AlertTriangle, Clock, ShieldCheck, Activity, 
   Terminal, Download, LogIn, Users, Monitor, Plus, Target, TrendingUp,
   ArrowUpCircle, ArrowDownCircle, ShieldAlert, Briefcase, ChevronRight, X, Database,
-  UserPlus, UserMinus, Key, Shield, User as UserIcon, Calendar, CheckCircle2
+  UserPlus, UserMinus, Key, Shield, User as UserIcon, Calendar, CheckCircle2,
+  Eye, EyeOff
 } from 'lucide-react';
 import { updateSheetData } from '../services/googleSheetsService';
 
@@ -34,6 +34,7 @@ const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], onHardSync }) 
   const [editPhone, setEditPhone] = useState('');
   const [editExpiry, setEditExpiry] = useState('');
   const [editPassword, setEditPassword] = useState('');
+  const [showEditPassword, setShowEditPassword] = useState(false);
 
   // New Signal Form State
   const [isAddingSignal, setIsAddingSignal] = useState(false);
@@ -87,6 +88,7 @@ const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], onHardSync }) 
     setEditPhone(user.phoneNumber || '');
     setEditExpiry(user.expiryDate || '');
     setEditPassword(user.password || '');
+    setShowEditPassword(false);
   };
 
   const handleSaveUser = async () => {
@@ -524,7 +526,21 @@ const Admin: React.FC<AdminProps> = ({ signals, users, logs = [], onHardSync }) 
                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] font-black text-slate-500 uppercase mb-1.5">Access Key (Password)</label>
-                    <input type="text" value={editPassword} onChange={e => setEditPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:border-blue-500 outline-none font-mono" />
+                    <div className="relative">
+                        <input 
+                            type={showEditPassword ? "text" : "password"} 
+                            value={editPassword} 
+                            onChange={e => setEditPassword(e.target.value)} 
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 pr-10 text-white text-sm focus:border-blue-500 outline-none font-mono" 
+                        />
+                        <button 
+                            type="button"
+                            onClick={() => setShowEditPassword(!showEditPassword)}
+                            className="absolute right-2 top-2 text-slate-500 hover:text-slate-300 transition-colors p-1"
+                        >
+                            {showEditPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-slate-500 uppercase mb-1.5">Expiry Date (YYYY-MM-DD)</label>
